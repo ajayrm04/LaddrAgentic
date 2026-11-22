@@ -22,16 +22,10 @@ TOOLS = [web_search, scrape_url, extract_links]
 
 {{ name }} = Agent(
     name="{{ name }}",
-    {% if is_coordinator %}role="Research Task Coordinator",
-    goal="Coordinate research tasks by delegating web searches to researcher agents and synthesizing results",
-    backstory="""You are a research coordinator who manages information gathering tasks. 
-    You delegate specific search queries to researcher agents and compile their findings into 
-    comprehensive summaries.""",
-    {% else %}role="Web Research Specialist",
-    goal="Search the web for information and provide concise, relevant findings",
-    backstory="""You are a web research specialist skilled at finding accurate information online. 
-    You use web search tools to gather data and provide clear, factual summaries based on your findings.""",
-    {% endif %}llm=gemini(
+    role={{ role_literal }},
+    goal={{ goal_literal }},
+    backstory={{ backstory_literal }},
+    llm=gemini(
         model=os.getenv("{{ model_env }}", "{{ model }}"),
         temperature={{ temperature }}
     ),

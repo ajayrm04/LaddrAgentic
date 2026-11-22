@@ -68,7 +68,7 @@ def add_agent(
     if not validate_project_directory(Path.cwd()):
         raise ProjectNotFoundError()
 
-    print_header(f"Adding Agent → {agent_name}")
+    print_header(f"Adding Agent -> {agent_name}")
 
     # Prompt for missing details
     if not role:
@@ -126,7 +126,7 @@ def add_tool(
     if not validate_project_directory(Path.cwd()):
         raise ProjectNotFoundError()
 
-    print_header(f"Adding Tool → {tool_name}")
+    print_header(f"Adding Tool -> {tool_name}")
 
     # Determine target agent
     if not agent:
@@ -170,9 +170,9 @@ def _create_agent_files(
     # Render flat agent module
     agent_context = {
         "name": agent_name,
-        "role": role,
-        "goal": goal,
-        "backstory": backstory or "",
+        "role_literal": repr(role),
+        "goal_literal": repr(goal),
+        "backstory_literal": repr(backstory or ""),
         "is_coordinator": agent_name.lower() == "coordinator",
         "available_agents": [],
         "model_env": f"{agent_name.upper()}_MODEL",

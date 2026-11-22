@@ -2,7 +2,7 @@ import { usePlaygrounds } from '../lib/queries/playground';
 import { Clock, CheckCircle, XCircle, Loader2, Play, ChevronDown, ChevronRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { usePlaygroundTraces } from '../lib/hooks/useWebSocket';
 
 export default function PlaygroundHistory() {
@@ -122,9 +122,8 @@ export default function PlaygroundHistory() {
                 const isExpanded = expandedRows.has(playground.prompt_id);
 
                 return (
-                  <>
+                  <Fragment key={playground.prompt_id}>
                     <tr
-                      key={playground.prompt_id}
                       className="hover:bg-[#252525] transition-colors cursor-pointer"
                     >
                       <td className="px-6 py-4">
@@ -164,13 +163,13 @@ export default function PlaygroundHistory() {
                     </tr>
 
                     {isExpanded && (
-                      <tr key={`${playground.prompt_id}-details`} className="bg-[#121212]">
+                      <tr className="bg-[#121212]">
                         <td colSpan={6} className="px-6 py-4">
                           <ExpandedDetails playground={playground} />
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -192,17 +191,11 @@ function ExpandedDetails({ playground }: { playground: any }) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <div className="text-xs text-gray-400">Inputs</div>
-          <div className="bg-[#0D0E0E] rounded p-3 mt-2 text-xs text-gray-300 max-h-48 overflow-auto">
-            <pre className="whitespace-pre-wrap">{JSON.stringify(playground.inputs || {}, null, 2)}</pre>
-          </div>
+          <PrettyValue value={playground.inputs ?? {}} label="Inputs" />
         </div>
 
         <div>
-          <div className="text-xs text-gray-400">Outputs</div>
-          <div className="bg-[#0D0E0E] rounded p-3 mt-2 text-xs text-gray-300 max-h-48 overflow-auto">
-            <pre className="whitespace-pre-wrap">{typeof playground.outputs === 'string' ? playground.outputs : JSON.stringify(playground.outputs || {}, null, 2)}</pre>
-          </div>
+          <PrettyValue value={playground.outputs ?? {}} label="Outputs" />
         </div>
       </div>
 
@@ -231,9 +224,141 @@ function ExpandedDetails({ playground }: { playground: any }) {
   );
 }
 
+// Try to parse a JSON string; returns parsed value or null
+function tryParseJson(value: any): any {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+// Render a value cleanly: strings as text, objects as pretty JSON in a scroll box
+function PrettyValue({ value, label }: { value: any; label: string }) {
+  const parsed = tryParseJson(value);
+  const obj = parsed !== null ? parsed : (typeof value === 'object' ? value : null);
+  const isStr = typeof value === 'string' && parsed === null;
+
+  if (isStr) {
+    return (
+      <div className="mb-2">
+        <div className="text-xs text-gray-400 mb-1">{label}</div>
+        <div className="text-xs text-gray-200 bg-[#0D0E0E] p-3 rounded border border-gray-800 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+          {value}
+        </div>
+      </div>
+    );
+  }
+
+  if (obj && typeof obj === 'object') {
+    // autonomous_think style response handling
+    if (obj.type === 'tool' && obj.tool) {
+      return (
+        <div className="mb-2">
+          <div className="text-xs text-gray-400 mb-1">{label}</div>
+          <div className="text-xs bg-[#0D0E0E] p-3 rounded border border-gray-800 space-y-1">
+            <div><span className="text-purple-400 font-semibold">Tool call:</span> <span className="text-white">{obj.tool}</span></div>
+            {obj.params && Object.keys(obj.params).length > 0 && (
+              <div>
+                <div className="text-gray-500 mt-1">Params:</div>
+                <pre className="text-gray-200 whitespace-pre-wrap mt-1">{JSON.stringify(obj.params, null, 2)}</pre>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+    if (obj.type === 'finish' && obj.answer) {
+      return (
+        <div className="mb-2">
+          <div className="text-xs text-gray-400 mb-1">{label}</div>
+          <div className="text-xs text-gray-200 bg-[#0D0E0E] p-3 rounded border border-gray-800 whitespace-pre-wrap break-words max-h-96 overflow-y-auto">
+            {obj.answer}
+          </div>
+        </div>
+      );
+    }
+    // generic object
+    return (
+      <div className="mb-2">
+        <div className="text-xs text-gray-400 mb-1">{label}</div>
+        <pre className="text-xs text-gray-200 bg-[#0D0E0E] p-3 rounded border border-gray-800 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">{JSON.stringify(obj, null, 2)}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-2">
+      <div className="text-xs text-gray-400 mb-1">{label}</div>
+      <div className="text-xs text-gray-200 bg-[#0D0E0E] p-3 rounded border border-gray-800 whitespace-pre-wrap break-words">
+        {String(value)}
+      </div>
+    </div>
+  );
+}
+
+// Render metadata as key/value rows, hiding huge nested blobs behind a toggle
+function MetadataView({ metadata }: { metadata: any }) {
+  const [showRaw, setShowRaw] = useState(false);
+  if (!metadata || typeof metadata !== 'object') return null;
+
+  // Pull out a few well-known scalar fields to show as chips
+  const scalarKeys = ['duration_ms', 'tokens', 'cost', 'provider', 'model', 'prompt_tokens',
+    'completion_tokens', 'total_tokens', 'tool', 'status', 'iteration', 'worker', 'started_at',
+    'ended_at', 'result_preview'];
+  const scalars: [string, any][] = [];
+  const nested: [string, any][] = [];
+  for (const [k, v] of Object.entries(metadata)) {
+    if (v === null || v === undefined) continue;
+    if (scalarKeys.includes(k)) scalars.push([k, v]);
+    else nested.push([k, v]);
+  }
+
+  return (
+    <div className="mb-2">
+      <div className="text-xs text-gray-400 mb-1">Metadata</div>
+      <div className="bg-[#0D0E0E] p-3 rounded border border-gray-800 space-y-2">
+        {scalars.length > 0 && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {scalars.map(([k, v]) => (
+              <div key={k} className="text-xs">
+                <span className="text-gray-500">{k.replace(/_/g, ' ')}:</span>{' '}
+                <span className={k === 'status' ? (v === 'success' ? 'text-green-400' : 'text-yellow-400') : 'text-gray-200'}>
+                  {typeof v === 'number' ? v.toLocaleString() : String(v)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {nested.map(([k, v]) => (
+          <div key={k}>
+            <div className="text-gray-500 text-xs mb-1">{k.replace(/_/g, ' ')}:</div>
+            <pre className="text-gray-200 whitespace-pre-wrap text-xs max-h-40 overflow-y-auto">{typeof v === 'string' ? v : JSON.stringify(v, null, 2)}</pre>
+          </div>
+        ))}
+        <button
+          onClick={() => setShowRaw(!showRaw)}
+          className="text-[10px] text-gray-500 hover:text-gray-300 underline"
+        >
+          {showRaw ? 'Hide raw metadata' : 'Show raw metadata'}
+        </button>
+        {showRaw && (
+          <pre className="text-[10px] text-gray-500 whitespace-pre-wrap max-h-40 overflow-y-auto mt-1">{JSON.stringify(metadata, null, 2)}</pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SpanNode({ span, depth }: { span: any; depth: number }) {
   const [open, setOpen] = useState(true);
   const hasChildren = span.children && span.children.length > 0;
+
+  // autonomous_think response may live in metadata.response
+  const thinkResponse = span.event_type === 'autonomous_think' ? span.metadata?.response : null;
 
   return (
     <div>
@@ -256,27 +381,20 @@ function SpanNode({ span, depth }: { span: any; depth: number }) {
 
       {open && (
         <div className="ml-8 mt-2 mb-2 text-xs text-gray-300 bg-[#121212] p-3 rounded">
-          {/* Metadata */}
-          {span.metadata && (
-            <div className="mb-2">
-              <div className="text-xs text-gray-400">Metadata</div>
-              <pre className="whitespace-pre-wrap text-xs mt-1">{JSON.stringify(span.metadata, null, 2)}</pre>
-            </div>
+          <MetadataView metadata={span.metadata} />
+
+          {/* autonomous_think: render response nicely */}
+          {thinkResponse != null && (
+            <PrettyValue value={thinkResponse} label="Reasoning Response" />
           )}
 
           {/* Input / Output */}
-          {span.input && (
-            <div className="mb-2">
-              <div className="text-xs text-gray-400">Input</div>
-              <pre className="whitespace-pre-wrap text-xs mt-1">{typeof span.input === 'string' ? span.input : JSON.stringify(span.input, null, 2)}</pre>
-            </div>
+          {span.input != null && span.event_type !== 'autonomous_think' && (
+            <PrettyValue value={span.input} label="Input" />
           )}
 
-          {span.output && (
-            <div className="mb-2">
-              <div className="text-xs text-gray-400">Output</div>
-              <pre className="whitespace-pre-wrap text-xs mt-1">{typeof span.output === 'string' ? span.output : JSON.stringify(span.output, null, 2)}</pre>
-            </div>
+          {span.output != null && span.event_type !== 'autonomous_think' && (
+            <PrettyValue value={span.output} label="Output" />
           )}
 
           {/* Children */}

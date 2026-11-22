@@ -29,6 +29,13 @@ interface SpanTreeNodeProps {
   depth: number;
 }
 
+function tryParseJson(value: any): any {
+  if (typeof value !== 'string') return null;
+  const t = value.trim();
+  if (!t.startsWith('{') && !t.startsWith('[')) return null;
+  try { return JSON.parse(t); } catch { return null; }
+}
+
 function SpanTreeNode({ span, depth }: SpanTreeNodeProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const hasChildren = span.children && span.children.length > 0;
@@ -203,9 +210,14 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
                   </div>
                   <div className="text-xs text-gray-300 bg-[#191A1A] p-3 rounded border border-gray-800 max-h-96 overflow-y-auto">
                     <pre className="whitespace-pre-wrap break-words">
-                      {typeof span.metadata.response === 'string' 
-                        ? span.metadata.response 
-                        : JSON.stringify(span.metadata.response, null, 2)}
+                      {(() => {
+                        const parsed = tryParseJson(span.metadata.response);
+                        if (parsed && parsed.type === 'finish' && parsed.answer) return parsed.answer;
+                        if (parsed && parsed.type === 'tool' && parsed.tool) return `Tool call: ${parsed.tool}\nParams: ${JSON.stringify(parsed.params || {}, null, 2)}`;
+                        return typeof span.metadata.response === 'string'
+                          ? span.metadata.response
+                          : JSON.stringify(span.metadata.response, null, 2);
+                      })()}
                     </pre>
                   </div>
                 </div>
@@ -232,8 +244,10 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
           {span.event_type !== 'llm_usage' && span.event_type !== 'autonomous_think' && span.input && (
             <div className="mb-2">
               <div className="text-xs text-gray-500 mb-1">Input:</div>
-              <pre className="text-xs text-gray-300 bg-[#191A1A] p-2 rounded overflow-x-auto">
-                {typeof span.input === 'string' ? span.input : JSON.stringify(span.input, null, 2)}
+              <pre className="text-xs text-gray-300 bg-[#191A1A] p-2 rounded overflow-x-auto whitespace-pre-wrap break-words">
+                {typeof span.input === 'string'
+                  ? (tryParseJson(span.input) ? JSON.stringify(tryParseJson(span.input), null, 2) : span.input)
+                  : JSON.stringify(span.input, null, 2)}
               </pre>
             </div>
           )}
@@ -242,8 +256,10 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
           {span.event_type !== 'llm_usage' && span.event_type !== 'autonomous_think' && span.output && (
             <div>
               <div className="text-xs text-gray-500 mb-1">Output:</div>
-              <pre className="text-xs text-gray-300 bg-[#191A1A] p-2 rounded overflow-x-auto">
-                {typeof span.output === 'string' ? span.output : JSON.stringify(span.output, null, 2)}
+              <pre className="text-xs text-gray-300 bg-[#191A1A] p-2 rounded overflow-x-auto whitespace-pre-wrap break-words">
+                {typeof span.output === 'string'
+                  ? (tryParseJson(span.output) ? JSON.stringify(tryParseJson(span.output), null, 2) : span.output)
+                  : JSON.stringify(span.output, null, 2)}
               </pre>
             </div>
           )}
@@ -467,7 +483,9 @@ export default function PlaygroundDetail() {
             <div className="bg-[#0D0E0E] rounded-lg p-4 border border-gray-800">
               <pre className="text-sm text-gray-300 overflow-x-auto whitespace-pre-wrap">
                 {typeof prompt.outputs === 'string' 
-                  ? prompt.outputs 
+                  ? (tryParseJson(prompt.outputs) !== null
+                    ? JSON.stringify(tryParseJson(prompt.outputs), null, 2)
+                    : prompt.outputs)
                   : JSON.stringify(prompt.outputs, null, 2)}
               </pre>
             </div>

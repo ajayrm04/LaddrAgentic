@@ -317,8 +317,10 @@ def add_worker_to_compose(project_path: Path, agent_name: str) -> None:
     with open(compose_path, "r", encoding="utf-8") as f:
         compose_data = yaml.safe_load(f)
 
-    # Check if service already exists
-    if f"{agent_name}" in compose_data.get("services", {}):
+    # Check if the worker service already exists
+    worker_service_name = f"{agent_name}_worker"
+    services = compose_data.get("services", {})
+    if worker_service_name in services or agent_name in services:
         return
 
     # Add worker service
@@ -345,7 +347,7 @@ def add_worker_to_compose(project_path: Path, agent_name: str) -> None:
         },
     }
 
-    compose_data.setdefault("services", {})[f"{agent_name}_worker"] = worker_service
+    compose_data.setdefault("services", {})[worker_service_name] = worker_service
 
     with open(compose_path, "w", encoding="utf-8") as f:
         yaml.dump(compose_data, f, default_flow_style=False, sort_keys=False)

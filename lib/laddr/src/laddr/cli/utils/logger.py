@@ -130,18 +130,18 @@ def print_step(step: str, description: str = "") -> None:
         description: Optional description
     """
     if description:
-        console.print(f"  [dim]→[/dim] {step} [dim]{description}[/dim]")
+        console.print(f"  [dim]->[/dim] {step} [dim]{description}[/dim]")
     else:
-        console.print(f"  [dim]→[/dim] {step}")
+        console.print(f"  [dim]->[/dim] {step}")
 
 
 def print_completion(message: str) -> None:
-    """Print a completion message with checkmark.
+    """Print a completion message.
 
     Args:
         message: Completion message
     """
-    console.print(f"\n[success]✓[/success] {message}\n")
+    console.print(f"\n[success]OK[/success] {message}\n")
 
 
 def print_table(data: list[dict], title: str | None = None) -> None:
