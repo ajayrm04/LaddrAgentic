@@ -1,0 +1,12 @@
+project:
+  name: my_agent_system
+  broker: redis
+  database: sqlite
+  storage: minio
+  tracing: true
+  metrics: true
+  agents:
+  - coordinator
+  - researcher
+  - analyst
+  - summarizer

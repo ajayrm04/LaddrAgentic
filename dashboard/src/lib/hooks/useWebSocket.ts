@@ -235,12 +235,14 @@ export const usePlaygroundTraces = (playgroundId: string | null) => {
   const [traces, setTraces] = useState<any[]>([]);
   const [isComplete, setIsComplete] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [finalOutput, setFinalOutput] = useState<any>(null);
 
   // Clear traces when playgroundId changes to prevent mixing traces from different runs
   useEffect(() => {
     setTraces([]);
     setIsComplete(false);
     setStatus(null);
+    setFinalOutput(null);
   }, [playgroundId]);
 
   const { isConnected, error } = useWebSocket(
@@ -294,6 +296,9 @@ export const usePlaygroundTraces = (playgroundId: string | null) => {
         } else if (message.type === 'complete' && message.data) {
           setIsComplete(true);
           setStatus(message.data.status);
+          setFinalOutput(
+            message.data.outputs ?? message.data.result ?? message.data.error ?? null
+          );
           // Update with final complete spans if provided (this is the full tree)
           if (message.data.spans && Array.isArray(message.data.spans)) {
             setTraces([{ spans: message.data.spans }]);
@@ -301,6 +306,7 @@ export const usePlaygroundTraces = (playgroundId: string | null) => {
         } else if (message.type === 'error') {
           setIsComplete(true);
           setStatus('error');
+          setFinalOutput(message.data?.error ?? null);
         }
       },
     }
@@ -310,9 +316,10 @@ export const usePlaygroundTraces = (playgroundId: string | null) => {
     setTraces([]);
     setIsComplete(false);
     setStatus(null);
+    setFinalOutput(null);
   }, []);
 
-  return { traces, isConnected, isComplete, status, error, clearTraces };
+  return { traces, isConnected, isComplete, status, error, finalOutput, clearTraces };
 };
 
 export const useBatchTraces = (batchId: string | null) => {

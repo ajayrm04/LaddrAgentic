@@ -144,7 +144,7 @@ class DatabaseService:
             logger.warning("DATABASE_URL not set, using local SQLite")
             database_url = "sqlite:///laddr.db"
 
-        # Track final DB type so we can make backend-specific decisions (e.g., tracing)
+        # Track the requested DB type for diagnostic logging if connection fails.
         def _db_type_from_url(url: str) -> str:
             return url.split("://")[0] if "://" in url else "unknown"
 
@@ -163,13 +163,8 @@ class DatabaseService:
             database_url = "sqlite:///laddr.db"
             self.engine = create_engine(database_url, echo=False)
 
-        # Record the effective DB type after any fallbacks
         self._db_type: str = _db_type_from_url(database_url)
-        # Traces are only supported when the effective backend is NOT Postgres.
-        # This ensures that when users point DATABASE_URL/DB_BACKEND at Postgres,
-        # trace rows are never written.
-        self._tracing_backend_enabled: bool = self._db_type not in {"postgresql", "postgres"}
-        self._trace_backend_warned: bool = False
+        self._tracing_backend_enabled = True
 
         self.SessionLocal = sessionmaker(bind=self.engine)
 
@@ -360,8 +355,6 @@ class DatabaseService:
     def tracing_backend_enabled(self) -> bool:
         """
         Whether the current database backend supports trace storage.
-        
-        Traces are disabled when using Postgres as the effective backend.
         """
         return self._tracing_backend_enabled
 
@@ -369,22 +362,8 @@ class DatabaseService:
         """
         Append a trace event to the internal database.
         
-        When the effective database backend is Postgres, trace storage is disabled and
-        this becomes a no-op. This ensures observability data is never written into a
-        Postgres database while still allowing jobs/results to be stored there.
+        Trace events use the same SQLAlchemy database as jobs and prompt executions.
         """
-        # DB-based tracing is disabled on Postgres backends.
-        if not self._tracing_backend_enabled:
-            # Log once per process to aid debugging, but never raise.
-            if not self._trace_backend_warned:
-                logger.info(
-                    "Trace storage is disabled for Postgres backend; "
-                    "no trace rows will be written."
-                )
-                self._trace_backend_warned = True
-            return
-        
-        # Fallback: write to internal DB.
         with self.get_session() as session:
             trace = Trace(
                 job_id=job_id,

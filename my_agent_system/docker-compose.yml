@@ -1,0 +1,197 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: laddr
+      POSTGRES_PASSWORD: laddr_password
+      POSTGRES_DB: laddr
+    ports:
+    - 5432:5432
+    volumes:
+    - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U laddr -d laddr
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: redis:7-alpine
+    ports:
+    - 6379:6379
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  minio:
+    image: pgsty/silo:RELEASE.2026-11-12T00-00-00Z
+    ports:
+    - 9000:9000
+    - 9001:9001
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+    - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test:
+      - CMD
+      - silo
+      - healthcheck
+      - ready
+      interval: 30s
+      timeout: 10s
+      start_period: 2m
+      retries: 3
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    ports:
+    - ${API_PORT:-8000}:8000
+    env_file: .env
+    environment:
+      PYTHONPATH: /app/lib/laddr/src:/app
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_SECURE: 'false'
+      QUEUE_BACKEND: redis
+    volumes:
+    - .:/app
+    - ../lib/laddr/src:/app/lib/laddr/src:ro
+    - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    command: python -m laddr.api.main
+  dashboard:
+    build:
+      context: ../dashboard
+      dockerfile: Dockerfile.prod
+    image: laddr-dashboard:local
+    ports:
+    - 5173:5173
+    environment:
+    - VITE_API_URL=http://api:${API_PORT:-8000}
+    - VITE_DASH_USERS=${LADDR_DASH_USERS:-admin:admin}
+    depends_on:
+    - api
+  coordinator_worker:
+    build: .
+    command: python -m agents.coordinator
+    env_file: .env
+    environment:
+      AGENT_NAME: coordinator
+      PYTHONPATH: /app/lib/laddr/src:/app
+    depends_on:
+    - redis
+    - postgres
+    volumes:
+    - .:/app
+    - ../lib/laddr/src:/app/lib/laddr/src:ro
+    deploy:
+      replicas: ${COORDINATOR_SCALE:-1}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+  researcher_worker:
+    build: .
+    command: python -m agents.researcher
+    env_file: .env
+    environment:
+      AGENT_NAME: researcher
+      PYTHONPATH: /app/lib/laddr/src:/app
+    depends_on:
+    - redis
+    - postgres
+    volumes:
+    - .:/app
+    - ../lib/laddr/src:/app/lib/laddr/src:ro
+    deploy:
+      replicas: ${RESEARCHER_SCALE:-1}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+  analyst_worker:
+    build: .
+    command: python -m agents.analyst
+    env_file: .env
+    environment:
+      AGENT_NAME: analyst
+      PYTHONPATH: /app/lib/laddr/src:/app
+    depends_on:
+    - redis
+    - postgres
+    volumes:
+    - .:/app
+    - ../lib/laddr/src:/app/lib/laddr/src:ro
+    deploy:
+      replicas: ${ANALYST_SCALE:-1}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+  summarizer_worker:
+    build: .
+    command: python -m agents.summarizer
+    env_file: .env
+    environment:
+      AGENT_NAME: summarizer
+      PYTHONPATH: /app/lib/laddr/src:/app
+    depends_on:
+    - redis
+    - postgres
+    volumes:
+    - .:/app
+    - ../lib/laddr/src:/app/lib/laddr/src:ro
+    deploy:
+      replicas: ${SUMMARIZER_SCALE:-1}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+volumes:
+  minio_data: null
+  postgres_data: null

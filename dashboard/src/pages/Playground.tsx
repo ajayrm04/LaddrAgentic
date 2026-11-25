@@ -51,6 +51,19 @@ const fmtNumber = (v: any) => {
   return typeof v === "number" && !isNaN(v) ? v.toLocaleString() : String(v);
 };
 
+const formatFinalOutput = (value: any): string => {
+  if (typeof value !== "string") {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2);
+  } catch {
+    return value;
+  }
+};
+
 function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
   const hasChildren = span.children && span.children.length > 0;
 
@@ -342,7 +355,7 @@ export default function Playground() {
     null
   );
   const [showTraces, setShowTraces] = useState(false);
-  const { traces, isConnected, isComplete, error } =
+  const { traces, isConnected, isComplete, error, finalOutput } =
     usePlaygroundTraces(activePlaygroundId);
 
   // Set default agent when agents load
@@ -1019,23 +1032,16 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
           </div>
 
           <div className="h-96 overflow-y-auto bg-[#191A1A]">
-            {!isConnected ? (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                <div className="text-center">
-                  <Activity className="w-12 h-12 mx-auto mb-3 opacity-50 animate-pulse" />
-                  <p className="text-sm">Connecting to WebSocket...</p>
-                  {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
-                </div>
-              </div>
-            ) : spans.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                <div className="text-center">
-                  <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">Waiting for traces...</p>
-                  <p className="text-xs text-gray-600 mt-2">WebSocket connected, waiting for trace data...</p>
-                </div>
-              </div>
-            ) : (
+            {isComplete && finalOutput !== null && finalOutput !== undefined && (
+              <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
+                <h3 className="mb-2 text-sm font-semibold text-cyan-300">Final Output</h3>
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-gray-200">
+                  {formatFinalOutput(finalOutput)}
+                </pre>
+              </section>
+            )}
+
+            {spans.length > 0 ? (
               <div className="p-4 space-y-1">
                 {traceTree.map((node, index) => (
                   <div
@@ -1046,6 +1052,33 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                     <TraceNodeRow node={node} depth={0} />
                   </div>
                 ))}
+              </div>
+            ) : isComplete ? (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                <div className="text-center">
+                  <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">
+                    {finalOutput == null
+                      ? "Run completed without trace spans or a final output."
+                      : "No trace spans were recorded for this run."}
+                  </p>
+                </div>
+              </div>
+            ) : !isConnected ? (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                <div className="text-center">
+                  <Activity className="w-12 h-12 mx-auto mb-3 opacity-50 animate-pulse" />
+                  <p className="text-sm">Connecting to WebSocket...</p>
+                  {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                <div className="text-center">
+                  <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">Waiting for traces...</p>
+                  <p className="text-xs text-gray-600 mt-2">WebSocket connected, waiting for trace data...</p>
+                </div>
               </div>
             )}
           </div>
