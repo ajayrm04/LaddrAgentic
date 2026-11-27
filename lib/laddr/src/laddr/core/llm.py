@@ -7,7 +7,20 @@ Provides pluggable LLM backends: NoOp (echo), OpenAI, Anthropic, Gemini.
 from __future__ import annotations
 
 
-class NoOpLLM:
+class LLMBase:
+    """Common interface providing a default (non-streaming) generate_stream."""
+
+    async def generate(self, prompt: str, system: str | None = None, **kwargs) -> str:
+        raise NotImplementedError
+
+    async def generate_stream(self, prompt: str, system: str | None = None, **kwargs):
+        # Default fallback: run generate() and yield the whole result once.
+        text = await self.generate(prompt, system=system, **kwargs)
+        if text:
+            yield text
+
+
+class NoOpLLM(LLMBase):
     """
     No-op LLM backend that echoes prompts.
     
@@ -18,8 +31,16 @@ class NoOpLLM:
         """Echo the prompt as response."""
         return f"[NoOpLLM Echo] Prompt: {prompt[:100]}..."
 
+    async def generate_stream(self, prompt: str, system: str | None = None, **kwargs):
+        """Yield the echo in small chunks to mimic streaming."""
+        import asyncio
+        text = f"[NoOpLLM Echo] Prompt: {prompt[:100]}..."
+        for i in range(0, len(text), 24):
+            yield text[i:i + 24]
+            await asyncio.sleep(0)
 
-class OpenAILLM:
+
+class OpenAILLM(LLMBase):
     """OpenAI LLM backend."""
 
     def __init__(self, api_key: str | None, model: str | None = None, base_url: str | None = None):
@@ -81,6 +102,43 @@ class OpenAILLM:
 
         return response.choices[0].message.content
 
+    async def generate_stream(self, prompt: str, system: str | None = None, **kwargs):
+        """Stream response chunks from OpenAI."""
+        if not self.api_key:
+            raise ValueError("OpenAI API key not configured")
+        if self._client is None:
+            try:
+                import openai
+                client_kwargs = {"api_key": self.api_key}
+                if self.base_url:
+                    client_kwargs["base_url"] = self.base_url
+                self._client = openai.AsyncOpenAI(**client_kwargs)
+            except ImportError:
+                raise RuntimeError("openai package not installed. Install with: pip install openai")
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        model_name = kwargs.get("model", self.default_model)
+        create_kwargs = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": kwargs.get("temperature", 0.7),
+            "stream": True,
+        }
+        max_tokens_value = kwargs.get("max_tokens", 4096)
+        if self._needs_max_completion_tokens(model_name):
+            create_kwargs["max_completion_tokens"] = max_tokens_value
+        else:
+            create_kwargs["max_tokens"] = max_tokens_value
+        stream = await self._client.chat.completions.create(**create_kwargs)
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
     async def generate_with_usage(self, prompt: str, system: str | None = None, **kwargs) -> tuple[str, dict]:
         """Generate response and return (text, usage) with token counts if available."""
         if not self.api_key:
@@ -138,7 +196,7 @@ class OpenAILLM:
         return results
 
 
-class AnthropicLLM:
+class AnthropicLLM(LLMBase):
     """Anthropic LLM backend."""
 
     def __init__(self, api_key: str | None, model: str | None = None):
@@ -167,6 +225,26 @@ class AnthropicLLM:
         )
 
         return response.content[0].text
+
+    async def generate_stream(self, prompt: str, system: str | None = None, **kwargs):
+        """Stream response chunks from Anthropic."""
+        if not self.api_key:
+            raise ValueError("Anthropic API key not configured")
+        if self._client is None:
+            try:
+                import anthropic
+                self._client = anthropic.AsyncAnthropic(api_key=self.api_key)
+            except ImportError:
+                raise RuntimeError("anthropic package not installed. Install with: pip install anthropic")
+        async with self._client.messages.stream(
+            model=kwargs.get("model", self.default_model),
+            max_tokens=kwargs.get("max_tokens", 4096),
+            system=system or "",
+            messages=[{"role": "user", "content": prompt}],
+        ) as stream:
+            async for text in stream.text_stream:
+                if text:
+                    yield text
 
     async def generate_with_usage(self, prompt: str, system: str | None = None, **kwargs) -> tuple[str, dict]:
         if not self.api_key:
@@ -200,7 +278,7 @@ class AnthropicLLM:
         return text, usage
 
 
-class GeminiLLM:
+class GeminiLLM(LLMBase):
     """Google Gemini LLM backend."""
 
     def __init__(self, api_key: str | None, model: str | None = None):
@@ -228,6 +306,26 @@ class GeminiLLM:
 
         response = await self._model.generate_content_async(full_prompt)
         return response.text
+
+    async def generate_stream(self, prompt: str, system: str | None = None, **kwargs):
+        """Stream response chunks from Gemini."""
+        if not self.api_key:
+            raise ValueError("Gemini API key not configured")
+        if self._model is None:
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=self.api_key)
+                self._model = genai.GenerativeModel(kwargs.get("model", self.default_model))
+            except ImportError:
+                raise RuntimeError("google-generativeai package not installed. Install with: pip install google-generativeai")
+        full_prompt = prompt
+        if system:
+            full_prompt = f"{system}\n\n{prompt}"
+        # generate_content_async supports streaming via stream=True
+        async for chunk in await self._model.generate_content_async(full_prompt, stream=True):
+            text = getattr(chunk, "text", None)
+            if text:
+                yield text
 
     async def generate_with_usage(self, prompt: str, system: str | None = None, **kwargs) -> tuple[str, dict]:
         if not self.api_key:
@@ -267,7 +365,7 @@ class GeminiLLM:
         return results
 
 
-class GroqLLM:
+class GroqLLM(LLMBase):
     """Groq LLM backend (ultra-fast inference)."""
 
     def __init__(self, api_key: str | None, model: str | None = None):
@@ -304,6 +402,34 @@ class GroqLLM:
         )
 
         return response.choices[0].message.content
+
+    async def generate_stream(self, prompt: str, system: str | None = None, **kwargs):
+        """Stream response chunks from Groq."""
+        if not self.api_key:
+            raise ValueError("Groq API key not configured")
+        if self._client is None:
+            try:
+                import openai
+                self._client = openai.AsyncOpenAI(api_key=self.api_key, base_url="https://api.groq.com/openai/v1")
+            except ImportError:
+                raise RuntimeError("openai package not installed. Install with: pip install openai")
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        stream = await self._client.chat.completions.create(
+            model=kwargs.get("model", self.default_model),
+            messages=messages,
+            temperature=kwargs.get("temperature", 0.7),
+            max_tokens=kwargs.get("max_tokens", 4096),
+            stream=True,
+        )
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
 
     async def generate_with_usage(self, prompt: str, system: str | None = None, **kwargs) -> tuple[str, dict]:
         """Generate response and return (text, usage) with token counts."""
@@ -351,7 +477,7 @@ class GroqLLM:
         return results
 
 
-class GrokLLM:
+class GrokLLM(LLMBase):
     """xAI Grok LLM backend - uses native HTTP API."""
 
     def __init__(self, api_key: str | None, model: str | None = None):
@@ -468,7 +594,7 @@ class GrokLLM:
         return results
 
 
-class HTTPLLM:
+class HTTPLLM(LLMBase):
     """Generic HTTP LLM adapter expecting a simple JSON API.
 
     It POSTs to endpoint with body: {"prompt": str, "system": str | null, "params": {...}}
@@ -509,7 +635,7 @@ class HTTPLLM:
         return text, {"provider": "http"}
 
 
-class OllamaLLM:
+class OllamaLLM(LLMBase):
     """Local Ollama LLM backend (talks to a local Ollama HTTP server).
 
     Default base URL: http://localhost:11434

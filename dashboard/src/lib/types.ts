@@ -118,3 +118,74 @@ export interface SystemEvent {
   timestamp: string;
   data: Record<string, any>;
 }
+
+// Cited reports
+
+export interface ReportSource {
+  id: string;
+  url: string;
+  title: string;
+  domain: string;
+  snippet?: string | null;
+  retrieved_at?: string | null;
+  tool?: string | null;
+}
+
+export interface ReportFinding {
+  text: string;
+  source_ids: string[];
+  quote?: string | null;
+  verified: boolean;
+}
+
+export interface ReportMethodologyStep {
+  agent?: string | null;
+  event: string;
+  at?: string | null;
+  tool?: string | null;
+  detail?: string | null;
+  status?: string | null;
+  duration_ms?: number | null;
+}
+
+export interface Report {
+  report_id: string;
+  prompt_id: string | null;
+  job_id: string | null;
+  question: string;
+  title: string | null;
+  status: string;
+  agent_name: string | null;
+  summary: string | null;
+  markdown?: string | null;
+  sources: ReportSource[];
+  findings: ReportFinding[];
+  disagreements: string[];
+  limitations: string | null;
+  confidence: number | null;
+  methodology: ReportMethodologyStep[];
+  source_count: number;
+  verified_count: number;
+  markdown_key?: string | null;
+  html_key?: string | null;
+  share_token: string | null;
+  share_expires_at: string | null;
+  error: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ReportListResponse {
+  reports: Report[];
+  limit: number;
+  offset: number;
+  total: number;
+}
+
+export interface ShareReportResponse {
+  report_id: string;
+  token: string;
+  path: string;
+  expires_at: string | null;
+}
+

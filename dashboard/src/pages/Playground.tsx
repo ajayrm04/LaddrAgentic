@@ -13,8 +13,10 @@ import {
   X,
   StopCircle,
   GitBranch,
+  FileText,
   
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useAgents } from "../lib/queries/agents";
 import {
   useRunPlayground,
@@ -355,7 +357,7 @@ export default function Playground() {
     null
   );
   const [showTraces, setShowTraces] = useState(false);
-  const { traces, isConnected, isComplete, error, finalOutput } =
+  const { traces, isConnected, isComplete, error, finalOutput, reportId, liveOutput, liveAgent } =
     usePlaygroundTraces(activePlaygroundId);
 
   // Set default agent when agents load
@@ -1032,6 +1034,41 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
           </div>
 
           <div className="h-96 overflow-y-auto bg-[#191A1A]">
+            {liveOutput && !isComplete && (
+              <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
+                  <h3 className="text-sm font-semibold text-cyan-300">
+                    Live output{liveAgent ? ` · ${liveAgent}` : ''}
+                  </h3>
+                </div>
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-gray-200">
+                  {liveOutput}
+                  <span className="inline-block w-2 h-4 bg-cyan-400 ml-0.5 animate-pulse align-middle" />
+                </pre>
+              </section>
+            )}
+
+            {isComplete && reportId && (
+              <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-cyan-300">Cited report</h3>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Structured findings with source citations, disagreements, and limitations.
+                    </p>
+                  </div>
+                  <Link
+                    to={`/reports/${reportId}`}
+                    className="flex items-center gap-2 px-3 py-2 text-sm bg-[#1FB8CD]/10 hover:bg-[#1FB8CD]/20 text-[#1FB8CD] border border-[#1FB8CD]/30 rounded-lg font-medium transition-colors"
+                  >
+                    <FileText className="w-4 h-4" />
+                    View Report
+                  </Link>
+                </div>
+              </section>
+            )}
+
             {isComplete && finalOutput !== null && finalOutput !== undefined && (
               <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
                 <h3 className="mb-2 text-sm font-semibold text-cyan-300">Final Output</h3>

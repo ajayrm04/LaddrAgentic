@@ -8,6 +8,9 @@ import AgentDetail from './pages/Agents/Detail';
 import Playground from './pages/Playground';
 import PlaygroundHistory from './pages/PlaygroundHistory';
 import PlaygroundDetail from './pages/PlaygroundDetail';
+import Reports from './pages/Reports';
+import ReportDetail from './pages/ReportDetail';
+import SharedReport from './pages/SharedReport';
 import Traces from './pages/Traces';
 import Batches from './pages/Batches';
 import BatchDetail from './pages/BatchDetail';
@@ -23,6 +26,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/reports/shared/:token" element={<SharedReport />} />
       <Route
         path="/*"
         element={
@@ -35,6 +39,8 @@ function App() {
                 <Route path="/playground" element={<Playground />} />
                 <Route path="/playground-history" element={<PlaygroundHistory />} />
                 <Route path="/playground-history/:promptId" element={<PlaygroundDetail />} />
+                <Route path="/reports" element={<Reports />} />
+                <Route path="/reports/:reportId" element={<ReportDetail />} />
                 <Route path="/traces" element={<Traces />} />
                 <Route path="/batches" element={<Batches />} />
                 <Route path="/batches/:batchId" element={<BatchDetail />} />

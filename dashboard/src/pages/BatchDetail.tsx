@@ -1,9 +1,9 @@
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useBatch } from '../lib/queries/batches';
 import { useBatchTraces } from '../lib/hooks/useWebSocket';
 import { ArrowLeft, CheckCircle, XCircle, Loader2, Clock, Activity, Database, Zap, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import { format } from 'date-fns';
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 
 interface Span {
   id: number;
@@ -185,7 +185,6 @@ export default function BatchDetail() {
   const { batchId } = useParams<{ batchId: string }>();
   const { data: batch, isLoading } = useBatch(batchId!);
   const { traces, isConnected, isComplete } = useBatchTraces(batchId || null);
-  const navigate = useNavigate();
 
   const getStatusIcon = () => {
     switch (batch?.status) {
@@ -203,36 +202,6 @@ export default function BatchDetail() {
 
   // Extract spans from traces
   const allSpans: Span[] = traces.length > 0 && traces[0].spans ? traces[0].spans : [];
-
-  // Group spans by job_id from their payload
-  const spansByJobId = useMemo(() => {
-    const grouped: Record<string, Span[]> = {};
-    
-    const extractJobId = (span: Span): string | null => {
-      // Try to get job_id from span metadata or payload
-      if (span.metadata?.job_id) return span.metadata.job_id;
-      // Check if span has a payload with job_id
-      if ((span as any).payload?.job_id) return (span as any).payload.job_id;
-      return null;
-    };
-
-    const processSpan = (span: Span) => {
-      const jobId = extractJobId(span);
-      if (jobId) {
-        if (!grouped[jobId]) {
-          grouped[jobId] = [];
-        }
-        grouped[jobId].push(span);
-      }
-      // Process children recursively
-      if (span.children && span.children.length > 0) {
-        span.children.forEach(processSpan);
-      }
-    };
-
-    allSpans.forEach(processSpan);
-    return grouped;
-  }, [allSpans]);
 
   // If we can't extract job_ids from spans, try to use batch.job_ids and group by matching
   // For now, we'll show all spans together but add a job list section

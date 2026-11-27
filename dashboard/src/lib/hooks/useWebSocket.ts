@@ -236,6 +236,9 @@ export const usePlaygroundTraces = (playgroundId: string | null) => {
   const [isComplete, setIsComplete] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [finalOutput, setFinalOutput] = useState<any>(null);
+  const [reportId, setReportId] = useState<string | null>(null);
+  const [liveOutput, setLiveOutput] = useState<string>('');
+  const [liveAgent, setLiveAgent] = useState<string | null>(null);
 
   // Clear traces when playgroundId changes to prevent mixing traces from different runs
   useEffect(() => {
@@ -243,6 +246,9 @@ export const usePlaygroundTraces = (playgroundId: string | null) => {
     setIsComplete(false);
     setStatus(null);
     setFinalOutput(null);
+    setReportId(null);
+    setLiveOutput('');
+    setLiveAgent(null);
   }, [playgroundId]);
 
   const { isConnected, error } = useWebSocket(
@@ -293,12 +299,25 @@ export const usePlaygroundTraces = (playgroundId: string | null) => {
         } else if (message.type === 'trace' && message.data) {
           // Legacy flat trace format (fallback)
           setTraces((prev) => [...prev, message.data]);
+        } else if (message.type === 'stream' && message.data) {
+          if (typeof message.data.accumulated === 'string') {
+            setLiveOutput(message.data.accumulated);
+          } else if (typeof message.data.delta === 'string') {
+            setLiveOutput((prev) => prev + message.data.delta);
+          }
+          if (message.data.agent) {
+            setLiveAgent(message.data.agent);
+          }
+          if (message.data.final) {
+            // keep the last accumulated text visible until complete
+          }
         } else if (message.type === 'complete' && message.data) {
           setIsComplete(true);
           setStatus(message.data.status);
           setFinalOutput(
             message.data.outputs ?? message.data.result ?? message.data.error ?? null
           );
+          setReportId(message.data.report_id ?? null);
           // Update with final complete spans if provided (this is the full tree)
           if (message.data.spans && Array.isArray(message.data.spans)) {
             setTraces([{ spans: message.data.spans }]);
@@ -317,9 +336,12 @@ export const usePlaygroundTraces = (playgroundId: string | null) => {
     setIsComplete(false);
     setStatus(null);
     setFinalOutput(null);
+    setReportId(null);
+    setLiveOutput('');
+    setLiveAgent(null);
   }, []);
 
-  return { traces, isConnected, isComplete, status, error, finalOutput, clearTraces };
+  return { traces, isConnected, isComplete, status, error, finalOutput, reportId, liveOutput, liveAgent, clearTraces };
 };
 
 export const useBatchTraces = (batchId: string | null) => {

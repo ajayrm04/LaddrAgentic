@@ -14,7 +14,7 @@ import json
 from typing import Any
 import uuid
 
-from sqlalchemy import JSON, Column, DateTime, Integer, String, create_engine, text
+from sqlalchemy import JSON, Column, DateTime, Float, Integer, String, Text, create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 import logging
@@ -120,6 +120,70 @@ class AgentRegistry(Base):
     agent_name = Column(String(255), primary_key=True)
     meta = Column(JSON, nullable=False)  # role, goal, tools, status, host_url, etc.
     last_seen = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Report(Base):
+    """Cited research report generated from a completed prompt execution."""
+
+    __tablename__ = "reports"
+
+    report_id = Column(String(36), primary_key=True)
+    prompt_id = Column(String(36), nullable=True, index=True)
+    job_id = Column(String(36), nullable=True, index=True)
+    question = Column(Text, nullable=False, default="")
+    title = Column(String(500), nullable=True)
+    status = Column(String(50), default="complete")  # complete | partial | failed
+    agent_name = Column(String(255), nullable=True)
+    summary = Column(Text, nullable=True)
+    markdown = Column(Text, nullable=True)
+    sources = Column(JSON, nullable=True)      # [{id,url,title,domain,snippet,retrieved_at,tool}]
+    findings = Column(JSON, nullable=True)     # [{text,source_ids,quote,verified}]
+    disagreements = Column(JSON, nullable=True)
+    limitations = Column(Text, nullable=True)
+    confidence = Column(Float, nullable=True)
+    methodology = Column(JSON, nullable=True)  # compact execution timeline
+    source_count = Column(Integer, default=0)
+    verified_count = Column(Integer, default=0)
+    markdown_key = Column(String(500), nullable=True)
+    html_key = Column(String(500), nullable=True)
+    share_token = Column(String(100), nullable=True, index=True)
+    share_expires_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+def _report_to_dict(report: Report, include_markdown: bool = True) -> dict:
+    """Serialize a Report row for API responses."""
+    data = {
+        "report_id": report.report_id,
+        "prompt_id": report.prompt_id,
+        "job_id": report.job_id,
+        "question": report.question,
+        "title": report.title,
+        "status": report.status,
+        "agent_name": report.agent_name,
+        "summary": report.summary,
+        "sources": report.sources or [],
+        "findings": report.findings or [],
+        "disagreements": report.disagreements or [],
+        "limitations": report.limitations,
+        "confidence": report.confidence,
+        "methodology": report.methodology or [],
+        "source_count": report.source_count or 0,
+        "verified_count": report.verified_count or 0,
+        "markdown_key": report.markdown_key,
+        "html_key": report.html_key,
+        "share_token": report.share_token,
+        "share_expires_at": _iso_z(report.share_expires_at),
+        "error": report.error,
+        "created_at": _iso_z(report.created_at),
+        "updated_at": _iso_z(report.updated_at),
+    }
+    if include_markdown:
+        data["markdown"] = report.markdown
+    return data
+
 
 
 class DatabaseService:
@@ -323,6 +387,184 @@ class DatabaseService:
                 }
                 for prompt in prompts
             ]
+
+    # Reports
+
+    def create_report(
+        self,
+        report_id: str | None = None,
+        prompt_id: str | None = None,
+        job_id: str | None = None,
+        question: str = "",
+        title: str | None = None,
+        status: str = "complete",
+        agent_name: str | None = None,
+        summary: str | None = None,
+        markdown: str | None = None,
+        sources: list | None = None,
+        findings: list | None = None,
+        disagreements: list | None = None,
+        limitations: str | None = None,
+        confidence: float | None = None,
+        methodology: list | None = None,
+        source_count: int = 0,
+        verified_count: int = 0,
+        markdown_key: str | None = None,
+        html_key: str | None = None,
+        error: str | None = None,
+    ) -> str:
+        """Create a report record and return its id."""
+        if report_id is None:
+            report_id = str(uuid.uuid4())
+
+        with self.get_session() as session:
+            report = Report(
+                report_id=report_id,
+                prompt_id=prompt_id,
+                job_id=job_id or prompt_id,
+                question=question or "",
+                title=title,
+                status=status,
+                agent_name=agent_name,
+                summary=summary,
+                markdown=markdown,
+                sources=_json_safe(sources or []),
+                findings=_json_safe(findings or []),
+                disagreements=_json_safe(disagreements or []),
+                limitations=limitations,
+                confidence=confidence,
+                methodology=_json_safe(methodology or []),
+                source_count=source_count,
+                verified_count=verified_count,
+                markdown_key=markdown_key,
+                html_key=html_key,
+                error=error,
+            )
+            session.add(report)
+
+        return report_id
+
+    def update_report(self, report_id: str, **fields) -> bool:
+        """Update whitelisted report fields."""
+        allowed = {
+            "title",
+            "status",
+            "summary",
+            "markdown",
+            "sources",
+            "findings",
+            "disagreements",
+            "limitations",
+            "confidence",
+            "methodology",
+            "source_count",
+            "verified_count",
+            "markdown_key",
+            "html_key",
+            "share_token",
+            "share_expires_at",
+            "error",
+        }
+        updates = {key: value for key, value in fields.items() if key in allowed}
+        if not updates:
+            return False
+        with self.get_session() as session:
+            report = session.query(Report).filter_by(report_id=report_id).first()
+            if not report:
+                return False
+            for key, value in updates.items():
+                setattr(report, key, value)
+            report.updated_at = datetime.utcnow()
+        return True
+
+    def get_report(self, report_id: str, include_markdown: bool = True) -> dict | None:
+        """Fetch a single report by id."""
+        with self.get_session() as session:
+            report = session.query(Report).filter_by(report_id=report_id).first()
+            if not report:
+                return None
+            return _report_to_dict(report, include_markdown=include_markdown)
+
+    def get_report_by_prompt(self, prompt_id: str, include_markdown: bool = True) -> dict | None:
+        """Fetch the most recent report for a prompt execution."""
+        if not prompt_id:
+            return None
+        with self.get_session() as session:
+            report = (
+                session.query(Report)
+                .filter(Report.prompt_id == prompt_id)
+                .order_by(Report.created_at.desc())
+                .first()
+            )
+            if not report:
+                return None
+            return _report_to_dict(report, include_markdown=include_markdown)
+
+    def list_reports(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status: str | None = None,
+        query: str | None = None,
+        prompt_id: str | None = None,
+    ) -> list[dict]:
+        """List reports, newest first, with optional filters."""
+        with self.get_session() as session:
+            q = session.query(Report)
+            if status:
+                q = q.filter(Report.status == status)
+            if prompt_id:
+                q = q.filter(Report.prompt_id == prompt_id)
+            if query:
+                like = f"%{query}%"
+                q = q.filter(Report.question.ilike(like) | Report.title.ilike(like))
+            reports = (
+                q.order_by(Report.created_at.desc())
+                .offset(max(0, offset))
+                .limit(max(1, limit))
+                .all()
+            )
+            return [_report_to_dict(report, include_markdown=False) for report in reports]
+
+    def delete_report(self, report_id: str) -> bool:
+        """Delete a report by id."""
+        with self.get_session() as session:
+            report = session.query(Report).filter_by(report_id=report_id).first()
+            if not report:
+                return False
+            session.delete(report)
+        return True
+
+    def set_report_share(
+        self,
+        report_id: str,
+        token: str,
+        expires_at: datetime | None = None,
+    ) -> bool:
+        """Attach a share token (and optional expiry) to a report."""
+        with self.get_session() as session:
+            report = session.query(Report).filter_by(report_id=report_id).first()
+            if not report:
+                return False
+            report.share_token = token
+            report.share_expires_at = expires_at
+            report.updated_at = datetime.utcnow()
+        return True
+
+    def get_report_by_share_token(self, token: str) -> dict | None:
+        """Fetch a report by its share token (expiry checked by the caller)."""
+        if not token:
+            return None
+        with self.get_session() as session:
+            report = session.query(Report).filter_by(share_token=token).first()
+            if not report:
+                return None
+            return _report_to_dict(report, include_markdown=True)
+
+    def count_reports(self) -> int:
+        """Return the total number of reports."""
+        with self.get_session() as session:
+            return session.query(Report).count()
 
     def get_job_traces(self, job_ids: str | list[str]) -> list[dict]:
         """Get all traces for one or more jobs."""

@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Home, Users, Briefcase, Play, Clock, GitBranch, Terminal, Settings, LogOut } from 'lucide-react';
+import { Home, Users, Play, Clock, GitBranch, Terminal, Settings, LogOut, FileText } from 'lucide-react';
 import { logout, getCurrentUser } from '../lib/auth';
 
 const navigation = [
@@ -7,6 +7,7 @@ const navigation = [
   { name: 'Agents', href: '/agents', icon: Users },
   { name: 'Playground', href: '/playground', icon: Play },
   { name: 'Playground History', href: '/playground-history', icon: Clock },
+  { name: 'Reports', href: '/reports', icon: FileText },
   { name: 'Traces', href: '/traces', icon: GitBranch },
   { name: 'Batches', href: '/batches', icon: GitBranch },
   { name: 'Logs', href: '/logs', icon: Terminal },

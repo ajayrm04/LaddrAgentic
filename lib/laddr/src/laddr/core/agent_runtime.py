@@ -271,20 +271,70 @@ class Agent:
 
         # Heartbeat task
         self._heartbeat_task: asyncio.Task | None = None
+        # Live streaming controls
+        self._stream_enabled: bool = False
+        self._stream_throttle_seconds: float = 0.25
 
     async def _llm_generate(self, prompt: str, system: str | None = None, **kwargs) -> str:
         """Generate with primary LLM.
 
-        If the backend supports generate_with_usage, capture token usage and emit a trace
-        event 'llm_usage' with provider/model and token counts for per-job accounting.
-        
-        Includes retry logic with exponential backoff for rate limit errors.
+        When live streaming is enabled and the backend supports ``generate_stream``,
+        consume the stream, emit throttled ``llm_chunk`` trace events, and return
+        the accumulated text. Otherwise fall back to the existing (retried)
+        non-streaming path.
         """
         import asyncio
-        import re
-        
+        import time
+
         params = {**self._llm_params, **(kwargs or {})}
-        
+
+        job_id = self.current_job_id or "unknown"
+        agent_name = self.config.name
+
+        # Live streaming path (opt-in)
+        if self._stream_enabled and hasattr(self.llm, "generate_stream"):
+            self._trace(job_id, agent_name, "agent_status", {
+                "state": "thinking",
+                "worker": agent_name,
+            })
+            chunks: list[str] = []
+            accumulated = ""
+            last_emit = time.monotonic()
+            try:
+                async for delta in self.llm.generate_stream(prompt, system=system, **params):  # type: ignore[attr-defined]
+                    if not delta:
+                        continue
+                    chunks.append(delta)
+                    accumulated += delta
+                    now = time.monotonic()
+                    if (now - last_emit) >= self._stream_throttle_seconds:
+                        self._trace(job_id, agent_name, "llm_chunk", {
+                            "delta": delta,
+                            "accumulated": accumulated,
+                            "worker": agent_name,
+                        })
+                        last_emit = now
+            except Exception as exc:
+                logger.warning("Streaming generation failed, falling back to non-streaming: %s", exc)
+                # Fall through to non-streaming path below
+                chunks = []
+                accumulated = ""
+            else:
+                # Emit a final chunk marker so consumers know the stream ended.
+                self._trace(job_id, agent_name, "llm_chunk", {
+                    "delta": "",
+                    "accumulated": accumulated,
+                    "final": True,
+                    "worker": agent_name,
+                })
+                self._trace(job_id, agent_name, "agent_status", {
+                    "state": "idle",
+                    "worker": agent_name,
+                })
+                return accumulated
+
+        # Non-streaming path (original behavior with retries)
+        import re
         max_retries = 5
         base_delay = 2.0  # Start with 2 seconds
         
@@ -576,6 +626,9 @@ class Agent:
         # Set up job context (support both job_id and prompt_id for compatibility)
         execution_id = task.get("prompt_id") or task.get("job_id") or str(uuid.uuid4())
         self.current_job_id = execution_id  # Keep internal name for now
+        
+        # Enable live streaming when requested (default off for backward compat)
+        self._stream_enabled = bool(task.get("stream", False))
         
         # Extract trace_id from task if present (for batch operations)
         self.current_trace_id = task.get("trace_id")

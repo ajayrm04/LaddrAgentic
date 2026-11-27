@@ -263,7 +263,7 @@ export default function Traces() {
                         <div className="text-purple-500">{isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</div>
                         <div className="flex items-center gap-4">
                           <code className="text-sm font-medium text-white">{group.job_id.slice(0, 8)}</code>
-                          <div className="flex items-center gap-3">{group.agents?.map((agent: string, idx: number) => <span key={idx} className="px-2 py-0.5 bg-cyan-400/15 text-cyan-300 text-xs rounded border border-cyan-400/30">{agent}</span>)}</div>
+                          <div className="flex items-center gap-3">{group.agents?.filter((agent): agent is string => !!agent).map((agent, idx) => <span key={idx} className="px-2 py-0.5 bg-cyan-400/15 text-cyan-300 text-xs rounded border border-cyan-400/30">{agent}</span>)}</div>
                         </div>
                       </div>
 

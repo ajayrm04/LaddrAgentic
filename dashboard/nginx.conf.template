@@ -46,6 +46,7 @@ server {
         # WebSocket timeout settings
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
+        proxy_buffering off;
     }
     
     # React Router - serve index.html for all routes

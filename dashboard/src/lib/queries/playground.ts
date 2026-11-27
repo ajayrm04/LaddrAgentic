@@ -10,6 +10,7 @@ export interface PlaygroundExecution {
   inputs?: Record<string, any>;
   outputs?: Record<string, any>;
   error?: string | null;
+  report_id?: string | null;
   token_usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;

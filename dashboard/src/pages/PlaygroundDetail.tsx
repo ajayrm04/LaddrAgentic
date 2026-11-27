@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { usePrompt } from '../lib/queries/prompts';
 import { usePlaygroundTraces } from '../lib/hooks/useWebSocket';
 import { useCancelPlayground } from '../lib/queries/playground';
-import { ArrowLeft, CheckCircle, XCircle, Loader2, Clock, Activity, Database, Code, Brain, ChevronDown, ChevronRight, Zap, StopCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Loader2, Clock, Activity, Database, Code, Brain, ChevronDown, ChevronRight, Zap, StopCircle, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { useState } from 'react';
 
@@ -272,7 +272,7 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
 export default function PlaygroundDetail() {
   const { promptId } = useParams<{ promptId: string }>();
   const { data: prompt, isLoading } = usePrompt(promptId!);
-  const { traces, isConnected, isComplete } = usePlaygroundTraces(promptId || null);
+  const { traces, isConnected, isComplete, liveOutput, liveAgent } = usePlaygroundTraces(promptId || null);
   const cancelPlayground = useCancelPlayground();
 
   const getStatusIcon = () => {
@@ -367,6 +367,15 @@ export default function PlaygroundDetail() {
             {cancelPlayground.isPending ? 'Canceling...' : 'Cancel Run'}
           </button>
         )}
+        {prompt.report_id && (
+          <Link
+            to={`/reports/${prompt.report_id}`}
+            className="flex items-center gap-2 px-4 py-2 bg-[#1FB8CD]/10 hover:bg-[#1FB8CD]/20 text-[#1FB8CD] border border-[#1FB8CD]/30 rounded-lg font-medium transition-colors"
+          >
+            <FileText className="w-4 h-4" />
+            View Report
+          </Link>
+        )}
       </div>
 
       <div className="bg-[#1F2121] rounded-lg p-6 border border-gray-800">
@@ -405,6 +414,24 @@ export default function PlaygroundDetail() {
           )}
         </div>
       </div>
+
+      {/* Live streaming transcript */}
+      {liveOutput && !isComplete && (
+        <div className="bg-[#1F2121] rounded-lg border border-cyan-900/60">
+          <div className="px-6 py-4 border-b border-gray-800 flex items-center gap-2">
+            <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
+            <h2 className="text-lg font-semibold text-cyan-300">
+              Live output{liveAgent ? ` · ${liveAgent}` : ''}
+            </h2>
+          </div>
+          <div className="p-6">
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-gray-200">
+              {liveOutput}
+              <span className="inline-block w-2 h-4 bg-cyan-400 ml-0.5 animate-pulse align-middle" />
+            </pre>
+          </div>
+        </div>
+      )}
 
       {/* Live Traces Section */}
       {(prompt.status === 'running' || spans.length > 0) && (

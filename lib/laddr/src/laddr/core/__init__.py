@@ -32,12 +32,24 @@ from .database import (
     Job,
     Memory,
     PromptExecution,
+    Report,
     Trace,
 )
 from .llm import AnthropicLLM, GeminiLLM, NoOpLLM, OpenAILLM
 
 from .mcp_client import MCPClient, MCPError, MCPTransport
 from .mcp_tools import MCPToolProvider, MultiMCPToolProvider
+
+from .reports import (
+    ReportDraft,
+    ReportFinding,
+    ReportService,
+    ReportSource,
+    deterministic_draft,
+    extract_sources,
+    render_html,
+    render_markdown,
+)
 
 from .message_bus import MemoryBus, RedisBus, ResponseMessage, TaskMessage
 from .runtime_entry import AgentRunner, WorkerRunner, run_agent
@@ -86,6 +98,16 @@ __all__ = [
     "Trace",
     "Memory",
     "AgentRegistry",
+    "Report",
+    # Reports
+    "ReportService",
+    "ReportDraft",
+    "ReportFinding",
+    "ReportSource",
+    "extract_sources",
+    "deterministic_draft",
+    "render_markdown",
+    "render_html",
     # Message bus
     "RedisBus",
     "MemoryBus",

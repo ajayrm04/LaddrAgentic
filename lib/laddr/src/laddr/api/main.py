@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime
+from datetime import datetime, timedelta
 import importlib
 import json
 import logging
+import secrets
 import time
 import uuid
 from typing import Any
@@ -38,8 +39,14 @@ from laddr.core import (
     run_agent,
 )
 from laddr.core.langfuse_tracer import get_langfuse_client
+from laddr.core.reports import (
+    ReportService,
+    coerce_answer,
+    extract_question,
+)
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
 
@@ -56,6 +63,7 @@ class SubmitPromptRequest(BaseModel):
     inputs: dict[str, Any]
     mode: str = "single"  # "single" or "sequential"
     agents: list[str] | None = None  # For sequential mode: ordered list of agents
+    stream: bool = True  # Enable live token streaming to the dashboard
 
 
 class CancelPromptResponse(BaseModel):
@@ -90,6 +98,18 @@ class AddTasksToBatchRequest(BaseModel):
     wait: bool = False
 
 
+class ShareReportRequest(BaseModel):
+    """Request to mint a shareable link for a report."""
+    expires_in_days: int = 30
+
+
+class BackfillReportsRequest(BaseModel):
+    """Request to generate reports for existing prompt executions."""
+    prompt_ids: list[str] | None = None
+    limit: int = 20
+    force: bool = False
+
+
 class AgentInfo(BaseModel):
     """Agent information."""
     name: str
@@ -107,13 +127,15 @@ config: LaddrConfig
 factory: BackendFactory
 database: Any
 message_bus: Any
+report_service: ReportService | None = None
+storage_backend: Any = None
 _db_executor: Any = None  # ThreadPoolExecutor for non-blocking DB calls
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize and cleanup services."""
-    global config, factory, database, message_bus, _db_executor
+    global config, factory, database, message_bus, _db_executor, report_service, storage_backend
     from concurrent.futures import ThreadPoolExecutor
 
     # Load configuration
@@ -126,6 +148,19 @@ async def lifespan(app: FastAPI):
 
     # Create database tables
     database.create_tables()
+
+    # Report compilation (optional storage backend; never fatal)
+    try:
+        storage_backend = factory.create_storage_backend()
+    except Exception:
+        logger.warning("Storage backend unavailable; reports will be stored in the database only")
+        storage_backend = None
+    report_service = ReportService(
+        database=database,
+        storage=storage_backend,
+        llm_factory=factory,
+    )
+    logger.info("Report generation: %s", "enabled" if report_service.enabled else "disabled")
 
     # Create thread pool executor for non-blocking database operations
     _db_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="db")
@@ -143,7 +178,7 @@ async def lifespan(app: FastAPI):
     logger.info("Laddr API server shutting down")
 
 
-async def _run_sequential_chain(runner: AgentRunner, agent_names: list[str], inputs: dict, job_id: str) -> dict:
+async def _run_sequential_chain(runner: AgentRunner, agent_names: list[str], inputs: dict, job_id: str, stream: bool = True) -> dict:
     """
     Run agents sequentially, piping output from one to the next.
     
@@ -162,7 +197,9 @@ async def _run_sequential_chain(runner: AgentRunner, agent_names: list[str], inp
     
     for agent_name in agent_names:
         try:
-            result = await runner.run(current_input, agent_name=agent_name, job_id=job_id)
+            run_inputs = current_input if isinstance(current_input, dict) else {"input": current_input, "text": str(current_input)}
+            run_inputs = {**run_inputs, "stream": stream}
+            result = await runner.run(run_inputs, agent_name=agent_name, job_id=job_id)
             
             if result.get("status") == "error":
                 return {
@@ -520,7 +557,7 @@ async def submit_prompt(request: SubmitPromptRequest, _: None = require_api_key)
                 
                 # Sequential mode: run multiple agents in order
                 if request.mode == "sequential" and request.agents and len(request.agents) > 1:
-                    result = await _run_sequential_chain(runner, request.agents, request.inputs, pid)
+                    result = await _run_sequential_chain(runner, request.agents, request.inputs, pid, stream=request.stream)
                 else:
                     # Single agent mode (default)
                     # For single-mode prompt executions initiated from the API UI,
@@ -529,6 +566,7 @@ async def submit_prompt(request: SubmitPromptRequest, _: None = require_api_key)
                     # However, allow delegation if the user is directly prompting the
                     # coordinator, since delegation is the coordinator's primary function.
                     inputs_for_run = dict(request.inputs or {})
+                    inputs_for_run["stream"] = request.stream
                     
                     # Only disable delegation if NOT prompting the coordinator
                     if request.prompt_name != "coordinator":
@@ -554,6 +592,23 @@ async def submit_prompt(request: SubmitPromptRequest, _: None = require_api_key)
                 # Sanitize outputs before saving to prevent JSON serialization errors
                 from laddr.core.runtime_entry import _sanitize_for_json
                 sanitized_outputs = _sanitize_for_json(outputs)
+
+                # Compile a cited report *before* marking the prompt complete so the
+                # report link exists the moment the UI observes a terminal status.
+                # This is fully best-effort: a failure here must never fail the run.
+                if prompt_status == "completed" and report_service is not None:
+                    try:
+                        traces = database.get_job_traces(pid)
+                        await report_service.compile_for_prompt(
+                            prompt_id=pid,
+                            question=extract_question(request.inputs),
+                            answer=sanitized_outputs,
+                            traces=traces,
+                            agent_name=request.prompt_name,
+                        )
+                    except Exception:
+                        logger.exception("Report compilation failed for prompt %s", pid)
+
                 database.save_prompt_result(pid, sanitized_outputs, status=prompt_status)
             except Exception as e:
                 logger.exception("Background prompt run failed")
@@ -601,6 +656,15 @@ async def get_prompt(prompt_id: str, _: None = require_api_key):
         except Exception:
             usage = {}
 
+        # Link to the generated report, if one exists
+        report_id = None
+        try:
+            report = database.get_report_by_prompt(prompt_id, include_markdown=False)
+            if report:
+                report_id = report.get("report_id")
+        except Exception:
+            report_id = None
+
         return {
             "prompt_id": prompt_id,
             "status": result.get("status"),
@@ -611,6 +675,7 @@ async def get_prompt(prompt_id: str, _: None = require_api_key):
             "created_at": result.get("created_at"),
             "completed_at": result.get("completed_at"),
             "token_usage": usage,
+            "report_id": report_id,
         }
 
     except HTTPException:
@@ -651,6 +716,220 @@ async def list_prompts(limit: int = 50, _: None = require_api_key):
     except Exception as e:
         logger.exception("Failed to list prompts")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Report Endpoints ---
+
+def _require_report_service() -> ReportService:
+    if report_service is None:
+        raise HTTPException(status_code=503, detail="Report service is not initialized")
+    return report_service
+
+
+def _share_expired(report: dict) -> bool:
+    value = report.get("share_expires_at")
+    if not value:
+        return False
+    try:
+        expiry = datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return False
+    return expiry < datetime.utcnow()
+
+
+@app.get("/api/reports")
+async def list_reports(
+    limit: int = 50,
+    offset: int = 0,
+    status: str | None = None,
+    q: str | None = None,
+    prompt_id: str | None = None,
+    _: None = require_api_key,
+):
+    """List generated reports, newest first."""
+    try:
+        reports = database.list_reports(
+            limit=min(max(1, limit), 200),
+            offset=max(0, offset),
+            status=status,
+            query=q,
+            prompt_id=prompt_id,
+        )
+        return {
+            "reports": reports,
+            "limit": limit,
+            "offset": offset,
+            "total": database.count_reports(),
+        }
+    except Exception as e:
+        logger.exception("Failed to list reports")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/reports/backfill")
+async def backfill_reports(request: BackfillReportsRequest, _: None = require_api_key):
+    """Generate reports for existing completed prompt executions."""
+    service = _require_report_service()
+
+    prompt_ids = request.prompt_ids
+    if not prompt_ids:
+        prompts = database.list_prompts(limit=min(max(1, request.limit), 100))
+        prompt_ids = [prompt.get("prompt_id") for prompt in prompts if prompt.get("prompt_id")]
+
+    created = 0
+    skipped = 0
+    errors: list[dict[str, str]] = []
+
+    for prompt_id in prompt_ids:
+        try:
+            result = database.get_prompt_result(prompt_id)
+            if not result or result.get("status") != "completed":
+                skipped += 1
+                continue
+            if not request.force and database.get_report_by_prompt(prompt_id, include_markdown=False):
+                skipped += 1
+                continue
+
+            traces = database.get_job_traces(prompt_id)
+            report = await service.compile_for_prompt(
+                prompt_id=prompt_id,
+                question=extract_question(result.get("inputs") or {}),
+                answer=result.get("outputs"),
+                traces=traces,
+                agent_name=result.get("prompt_name"),
+                force=request.force,
+            )
+            if report:
+                created += 1
+            else:
+                skipped += 1
+        except Exception as exc:
+            logger.exception("Failed to backfill report for prompt %s", prompt_id)
+            errors.append({"prompt_id": prompt_id, "error": str(exc)})
+
+    return {"created": created, "skipped": skipped, "errors": errors}
+
+
+@app.get("/api/reports/shared/{token}")
+async def get_shared_report(token: str):
+    """Public read-only report access via a share token."""
+    try:
+        report = database.get_report_by_share_token(token)
+    except Exception as e:
+        logger.exception("Failed to load shared report")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not report:
+        raise HTTPException(status_code=404, detail="Shared report not found")
+    if _share_expired(report):
+        raise HTTPException(status_code=410, detail="This shared link has expired")
+
+    return report
+
+
+@app.get("/api/reports/shared/{token}/html", response_class=HTMLResponse)
+async def get_shared_report_html(token: str):
+    """Public, print-ready HTML version of a shared report."""
+    try:
+        report = database.get_report_by_share_token(token)
+    except Exception as e:
+        logger.exception("Failed to load shared report")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not report:
+        raise HTTPException(status_code=404, detail="Shared report not found")
+    if _share_expired(report):
+        raise HTTPException(status_code=410, detail="This shared link has expired")
+
+    service = _require_report_service()
+    return HTMLResponse(content=service.html_for(report))
+
+
+@app.get("/api/reports/{report_id}")
+async def get_report(report_id: str, _: None = require_api_key):
+    """Fetch a single report with full content."""
+    try:
+        report = database.get_report(report_id)
+    except Exception as e:
+        logger.exception("Failed to fetch report")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
+
+
+@app.get("/api/reports/{report_id}/markdown", response_class=PlainTextResponse)
+async def download_report_markdown(report_id: str, _: None = require_api_key):
+    """Download the report as Markdown."""
+    report = database.get_report(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    markdown = report.get("markdown")
+    if not markdown and storage_backend is not None and report.get("markdown_key"):
+        try:
+            data = await storage_backend.get_object(report_service.bucket, report["markdown_key"])
+            markdown = data.decode("utf-8")
+        except Exception:
+            markdown = None
+
+    if not markdown:
+        raise HTTPException(status_code=404, detail="Markdown content is not available")
+
+    return PlainTextResponse(
+        content=markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="report-{report_id[:8]}.md"'
+        },
+    )
+
+
+@app.get("/api/reports/{report_id}/html", response_class=HTMLResponse)
+async def download_report_html(report_id: str, _: None = require_api_key):
+    """Print-ready HTML view of a report (use the browser's Save as PDF)."""
+    report = database.get_report(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    service = _require_report_service()
+    return HTMLResponse(content=service.html_for(report))
+
+
+@app.post("/api/reports/{report_id}/share")
+async def share_report(
+    report_id: str,
+    request: ShareReportRequest | None = None,
+    _: None = require_api_key,
+):
+    """Mint (or reuse) a share token for a report."""
+    report = database.get_report(report_id, include_markdown=False)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    days = 30 if request is None else request.expires_in_days
+    expires_at = datetime.utcnow() + timedelta(days=days) if days and days > 0 else None
+
+    token = report.get("share_token")
+    if not token or _share_expired(report):
+        token = secrets.token_urlsafe(24)
+
+    database.set_report_share(report_id, token, expires_at)
+
+    return {
+        "report_id": report_id,
+        "token": token,
+        "path": f"/reports/shared/{token}",
+        "expires_at": expires_at.isoformat() + "Z" if expires_at else None,
+    }
+
+
+@app.delete("/api/reports/{report_id}")
+async def delete_report(report_id: str, _: None = require_api_key):
+    """Delete a report (artifacts in storage are left untouched)."""
+    if not database.delete_report(report_id):
+        raise HTTPException(status_code=404, detail="Report not found")
+    return {"ok": True, "report_id": report_id}
 
 
 # --- Legacy Job Endpoints (backward compatibility) ---
@@ -1772,7 +2051,8 @@ async def websocket_prompt_traces(websocket: WebSocket, prompt_id: str):
         logger.info(f"Loaded {len(initial_traces)} initial traces for prompt {prompt_id} (using as job_id)")
         if initial_traces:
             last_trace_id = max(t.get('id', 0) for t in initial_traces)
-            trace_tree = _build_trace_tree(initial_traces)
+            structural = [t for t in initial_traces if t.get('event_type') != 'llm_chunk']
+            trace_tree = _build_trace_tree(structural)
             logger.info(f"Built trace tree with {len(trace_tree)} root spans for prompt {prompt_id}")
             sent = await safe_send({
                 "type": "traces",
@@ -1806,14 +2086,25 @@ async def websocket_prompt_traces(websocket: WebSocket, prompt_id: str):
             logger.info(f"Prompt {prompt_id} is already {prompt_result.get('status')}, sending completion event")
             # Send completion event with final tree (all traces)
             all_traces = await loop.run_in_executor(_db_executor, database.get_job_traces, prompt_id)
-            final_tree = _build_trace_tree(all_traces)
+            structural_traces = [t for t in all_traces if t.get('event_type') != 'llm_chunk']
+            final_tree = _build_trace_tree(structural_traces)
+            report_id = None
+            try:
+                report = await loop.run_in_executor(
+                    _db_executor, database.get_report_by_prompt, prompt_id, False
+                )
+                if report:
+                    report_id = report.get("report_id")
+            except Exception:
+                report_id = None
             sent = await safe_send({
                 "type": "complete",
                 "data": {
                     "status": prompt_result.get('status'),
                     "outputs": prompt_result.get('outputs'),
                     "error": prompt_result.get('error'),
-                    "spans": final_tree
+                    "spans": final_tree,
+                    "report_id": report_id
                 }
             })
             if sent:
@@ -1835,22 +2126,38 @@ async def websocket_prompt_traces(websocket: WebSocket, prompt_id: str):
             new_traces = [t for t in traces if t.get('id', 0) > last_trace_id]
             
             if new_traces:
-                # Update last seen ID
+                # Separate streaming chunks from structural traces so the
+                # trace tree stays clean and chunks are delivered as `stream`
+                # messages for the live transcript.
+                stream_chunks = [t for t in new_traces if t.get("event_type") == "llm_chunk"]
+                structural = [t for t in new_traces if t.get("event_type") != "llm_chunk"]
+
                 last_trace_id = max(t.get('id', 0) for t in new_traces)
-                
-                # Build hierarchical tree structure
-                trace_tree = _build_trace_tree(new_traces)
-                
-                logger.debug(f"Sending {len(new_traces)} new traces ({len(trace_tree)} root spans) for prompt {prompt_id}")
-                
-                # Send tree structure to client
-                sent = await safe_send({
-                    "type": "traces",
-                    "data": {
-                        "spans": trace_tree,
-                        "count": len(new_traces)
-                    }
-                })
+
+                for chunk in stream_chunks:
+                    payload = chunk.get("payload") or {}
+                    await safe_send({
+                        "type": "stream",
+                        "data": {
+                            "agent": chunk.get("agent_name"),
+                            "delta": payload.get("delta", ""),
+                            "accumulated": payload.get("accumulated"),
+                            "final": bool(payload.get("final")),
+                            "trace_id": chunk.get("id"),
+                        },
+                    })
+
+                if structural:
+                    trace_tree = _build_trace_tree(structural)
+                    sent = await safe_send({
+                        "type": "traces",
+                        "data": {
+                            "spans": trace_tree,
+                            "count": len(structural),
+                        },
+                    })
+                    if not sent:
+                        logger.warning(f"Failed to send traces for prompt {prompt_id}")
                 if sent:
                     logger.debug(f"Successfully sent {len(new_traces)} new traces for prompt {prompt_id}")
                 else:
@@ -1863,15 +2170,27 @@ async def websocket_prompt_traces(websocket: WebSocket, prompt_id: str):
                 logger.info(f"Prompt {prompt_id} completed with status {prompt_result.get('status')}")
                 # Send completion event with final tree (all traces)
                 all_traces = await loop.run_in_executor(_db_executor, database.get_job_traces, prompt_id)
-                final_tree = _build_trace_tree(all_traces)
-                
+                structural_traces = [t for t in all_traces if t.get('event_type') != 'llm_chunk']
+                final_tree = _build_trace_tree(structural_traces)
+
+                report_id = None
+                try:
+                    report = await loop.run_in_executor(
+                        _db_executor, database.get_report_by_prompt, prompt_id, False
+                    )
+                    if report:
+                        report_id = report.get("report_id")
+                except Exception:
+                    report_id = None
+
                 await safe_send({
                     "type": "complete",
                     "data": {
                         "status": prompt_result.get('status'),
                         "outputs": prompt_result.get('outputs'),
                         "error": prompt_result.get('error'),
-                        "spans": final_tree
+                        "spans": final_tree,
+                        "report_id": report_id
                     }
                 })
                 logger.info(f"Prompt {prompt_id} completed, closing WebSocket")
