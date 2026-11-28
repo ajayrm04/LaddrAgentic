@@ -18,7 +18,6 @@ import Logs from './pages/Logs';
 import Settings from './pages/Settings';
 import Graphs from './pages/Graphs';
 import GraphEditor from './pages/GraphEditor';
-import './App.css';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return isAuthenticated() ? <>{children}</> : <Navigate to="/login" replace />;

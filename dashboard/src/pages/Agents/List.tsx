@@ -1,8 +1,10 @@
 import axios from 'axios';
-import { useState } from 'react';
-import type { FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, Wrench, X } from 'lucide-react';
+import { AlertTriangle, Plus, Trash2, Wrench, X } from 'lucide-react';
+import clsx from 'clsx';
+import { Card, CardSkeleton, EmptyState, PageHeader } from '../../components/ui';
 import {
   useAgents,
   useCreateAgent,
@@ -51,6 +53,126 @@ function getOperationError(error: unknown) {
     agentRemoved: false,
     retryable: false,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared modal shell (spec §11): backdrop + header + X + footer.      */
+/* Escape-to-close, body scroll lock, backdrop click and initial focus  */
+/* are handled here so every dialog in this file behaves identically.   */
+/* ------------------------------------------------------------------ */
+
+function ModalShell({
+  titleId,
+  title,
+  description,
+  onClose,
+  closeDisabled = false,
+  onSubmit,
+  panelClassName = 'max-w-2xl',
+  footer,
+  afterFooter,
+  children,
+}: {
+  titleId: string;
+  title: ReactNode;
+  description?: ReactNode;
+  onClose: () => void;
+  closeDisabled?: boolean;
+  onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
+  panelClassName?: string;
+  footer?: ReactNode;
+  afterFooter?: ReactNode;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  const closeDisabledRef = useRef(closeDisabled);
+  onCloseRef.current = onClose;
+  closeDisabledRef.current = closeDisabled;
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    panelRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !closeDisabledRef.current) {
+        onCloseRef.current();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  const requestClose = () => {
+    if (!closeDisabled) onClose();
+  };
+
+  const footerMarkup = footer ? (
+    <div className="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-4">
+      {footer}
+    </div>
+  ) : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) requestClose();
+      }}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className={clsx(
+          'surface max-h-[90vh] w-full overflow-y-auto shadow-pop animate-fade-up focus:outline-none',
+          panelClassName
+        )}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
+          <div className="min-w-0">
+            <h2 id={titleId} className="section-title">
+              {title}
+            </h2>
+            {description && (
+              <p className="mt-1 text-sm text-ink-subtle">{description}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={requestClose}
+            disabled={closeDisabled}
+            aria-label="Close dialog"
+            title="Close dialog"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface-overlay hover:text-ink disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {onSubmit ? (
+          <form onSubmit={onSubmit}>
+            <div className="space-y-4 p-5">{children}</div>
+            {footerMarkup}
+            {afterFooter}
+          </form>
+        ) : (
+          <>
+            <div className="space-y-4 p-5">{children}</div>
+            {footerMarkup}
+            {afterFooter}
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function AgentsList() {
@@ -189,340 +311,311 @@ export default function AgentsList() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-gray-400">Loading agents...</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-cyan-400">Agents</h1>
-          <p className="mt-1 text-xs text-gray-500">
-            Start <code>python agent_manager.py</code> once from the my_agent_system folder to add or delete agents.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={openAddAgentForm}
-          className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-medium text-white transition-colors hover:bg-cyan-500"
-        >
-          <Plus className="h-4 w-4" />
-          Add agent
-        </button>
-      </div>
+      <PageHeader
+        title="Agents"
+        description={
+          <>
+            Start <code className="rounded bg-surface-overlay px-1 py-0.5 font-mono text-xs text-ink">
+              python agent_manager.py
+            </code>{' '}
+            once from the my_agent_system folder to add or delete agents.
+          </>
+        }
+        actions={
+          <button type="button" onClick={openAddAgentForm} className="btn-primary">
+            <Plus className="h-4 w-4" />
+            Add agent
+          </button>
+        }
+      />
 
       {isError && (
-        <div className="rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-300">
-          {error instanceof Error ? error.message : 'Could not load agents.'}
+        <div className="flex items-start gap-3 rounded-lg border border-danger-border bg-danger-subtle px-4 py-3 text-sm text-danger">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1">
+            {error instanceof Error ? error.message : 'Could not load agents.'}
+          </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-        {agents && agents.length > 0 ? (
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, index) => (
+            <CardSkeleton key={`agent-skeleton-${index}`} rows={3} />
+          ))
+        ) : agents && agents.length > 0 ? (
           agents.map((agent) => (
-            <article
-              key={agent.name}
-              className="rounded-lg border border-gray-800 bg-[#1f1f1f] p-6 transition-colors hover:border-cyan-400"
-            >
-              <Link to={`/agents/${agent.name}`} className="group block">
-                <h3 className="mb-2 text-lg font-semibold text-cyan-400 transition-colors group-hover:text-cyan-300">
+            <Card hover as="article" key={agent.name} className="flex flex-col p-5">
+              <Link to={`/agents/${agent.name}`} className="group block min-w-0">
+                <h3 className="truncate text-base font-semibold text-ink transition-colors group-hover:text-primary-300">
                   {agent.name}
                 </h3>
-                <p className="mb-4 text-sm text-gray-400">{agent.role}</p>
-                <p className="mb-6 line-clamp-3 text-sm text-gray-300">
+                <p className="mt-1 truncate text-sm text-ink-subtle">{agent.role}</p>
+                <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-ink-muted">
                   {agent.goal || 'No goal provided.'}
                 </p>
-                <div className="flex items-center gap-2 text-sm text-gray-400">
-                  <Wrench className="h-4 w-4 text-cyan-400" />
-                  <span>{agent.tools?.length || 0} tools</span>
+                <div className="mt-4 flex items-center gap-2 text-sm text-ink-muted">
+                  <Wrench className="h-4 w-4 shrink-0 text-primary-400" />
+                  <span className="tabular-nums">{agent.tools?.length || 0} tools</span>
                 </div>
               </Link>
               <button
                 type="button"
                 onClick={() => openDeleteAgentDialog(agent.name)}
-                className="mt-5 inline-flex items-center gap-2 rounded border border-red-900/70 px-3 py-2 text-sm text-red-300 transition-colors hover:border-red-600 hover:bg-red-950/40"
+                className="btn-danger mt-4 self-start"
               >
                 <Trash2 className="h-4 w-4" />
                 Delete agent
               </button>
-            </article>
+            </Card>
           ))
         ) : (
           !isError && (
-            <div className="col-span-full py-12 text-center">
-              <p className="text-gray-400">No agents configured yet.</p>
-              <button
-                type="button"
-                onClick={openAddAgentForm}
-                className="mt-3 text-cyan-400 hover:text-cyan-300"
-              >
-                Add your first agent
-              </button>
+            <div className="col-span-full">
+              <EmptyState
+                icon={<Wrench className="h-5 w-5" />}
+                title="No agents configured yet"
+                description="Agents are registered through the project CLI and started by Docker Compose."
+                action={
+                  <button type="button" onClick={openAddAgentForm} className="btn-primary">
+                    <Plus className="h-4 w-4" />
+                    Add your first agent
+                  </button>
+                }
+              />
             </div>
           )
         )}
       </div>
 
       {isAddAgentOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <section
-            aria-labelledby="add-agent-title"
-            aria-modal="true"
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-gray-700 bg-[#1f2121] shadow-2xl"
-            role="dialog"
-          >
-            <div className="flex items-center justify-between border-b border-gray-800 px-6 py-4">
-              <div>
-                <h2 id="add-agent-title" className="text-xl font-semibold text-white">
-                  Add agent
-                </h2>
-                <p className="mt-1 text-sm text-gray-400">
-                  The project CLI will create the agent, then Docker Compose will rebuild and start the stack.
-                </p>
-              </div>
+        <ModalShell
+          titleId="add-agent-title"
+          title="Add agent"
+          description="The project CLI will create the agent, then Docker Compose will rebuild and start the stack."
+          onClose={() => setIsAddAgentOpen(false)}
+          closeDisabled={isBusy}
+          onSubmit={submitAgent}
+          footer={
+            <>
               <button
                 type="button"
                 onClick={() => setIsAddAgentOpen(false)}
                 disabled={isBusy}
-                aria-label="Close dialog"
-                className="rounded p-2 text-gray-400 hover:bg-gray-800 hover:text-white disabled:opacity-50"
+                className="btn-secondary"
               >
-                <X className="h-5 w-5" />
+                Cancel
               </button>
-            </div>
-
-            <form onSubmit={submitAgent} className="space-y-4 p-6">
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-gray-300">Agent name</span>
-                <input
-                  required
-                  pattern="[a-z][a-z0-9_]{0,49}"
-                  maxLength={50}
-                  value={form.name}
-                  onChange={(event) => updateForm('name', event.target.value)}
-                  placeholder="e.g. summarizer"
-                  title="Use lowercase letters, numbers, and underscores; start with a letter."
-                  className="w-full rounded-lg border border-gray-700 bg-[#0d0e0e] px-3 py-2 text-white outline-none focus:border-cyan-400"
-                />
-                <span className="mt-1 block text-xs text-gray-500">
-                  Use lowercase snake_case; hyphens and spaces are not allowed.
-                </span>
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-gray-300">Role</span>
-                <input
-                  required
-                  maxLength={200}
-                  value={form.role}
-                  onChange={(event) => updateForm('role', event.target.value)}
-                  placeholder="e.g. Research Specialist"
-                  className="w-full rounded-lg border border-gray-700 bg-[#0d0e0e] px-3 py-2 text-white outline-none focus:border-cyan-400"
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-gray-300">Goal</span>
-                <textarea
-                  required
-                  rows={3}
-                  maxLength={2000}
-                  value={form.goal}
-                  onChange={(event) => updateForm('goal', event.target.value)}
-                  placeholder="What should this agent accomplish?"
-                  className="w-full resize-y rounded-lg border border-gray-700 bg-[#0d0e0e] px-3 py-2 text-white outline-none focus:border-cyan-400"
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-gray-300">Backstory</span>
-                <textarea
-                  required
-                  rows={4}
-                  maxLength={4000}
-                  value={form.backstory}
-                  onChange={(event) => updateForm('backstory', event.target.value)}
-                  placeholder="Describe the agent's expertise and context."
-                  className="w-full resize-y rounded-lg border border-gray-700 bg-[#0d0e0e] px-3 py-2 text-white outline-none focus:border-cyan-400"
-                />
-              </label>
-
-              {formError && (
-                <div className="rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-300">
-                  <p className="whitespace-pre-wrap">{formError}</p>
-                  {stackUpdateRequired && (
-                    <button
-                      type="button"
-                      onClick={retryStackUpdate}
-                      disabled={isBusy}
-                      className="mt-3 rounded bg-red-800 px-3 py-2 font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                    >
-                      {restartStack.isPending ? 'Updating stack...' : 'Retry Docker Compose update'}
-                    </button>
-                  )}
-                  {pendingAgentRefreshName && !waitingForAgent && (
-                    <button
-                      type="button"
-                      onClick={() => void waitAndRefresh(pendingAgentRefreshName)}
-                      disabled={isBusy}
-                      className="mt-3 rounded bg-gray-700 px-3 py-2 font-medium text-white hover:bg-gray-600 disabled:opacity-50"
-                    >
-                      Check readiness and refresh
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3 border-t border-gray-800 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setIsAddAgentOpen(false)}
-                  disabled={isBusy}
-                  className="rounded-lg border border-gray-700 px-4 py-2 text-gray-300 hover:bg-gray-800 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isBusy || pendingAgentRefreshName !== null}
-                  className="rounded-lg bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {waitingForAgent
-                    ? 'Waiting for API and agent...'
-                    : createAgent.isPending
-                      ? 'Creating agent and rebuilding...'
-                      : pendingAgentRefreshName
-                        ? 'Agent created'
-                        : 'Create agent'}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={isBusy || pendingAgentRefreshName !== null}
+                className="btn-primary"
+              >
+                {waitingForAgent
+                  ? 'Waiting for API and agent...'
+                  : createAgent.isPending
+                    ? 'Creating agent and rebuilding...'
+                    : pendingAgentRefreshName
+                      ? 'Agent created'
+                      : 'Create agent'}
+              </button>
+            </>
+          }
+          afterFooter={
+            <>
               {createAgent.isPending && (
-                <p aria-live="polite" className="text-right text-xs text-gray-400">
+                <p aria-live="polite" className="px-5 pb-4 text-right text-xs text-ink-subtle">
                   This can take several minutes while Docker rebuilds the stack.
                 </p>
               )}
               {waitingForAgent && (
-                <p aria-live="polite" className="text-right text-xs text-gray-400">
-                  The stack is back up. Waiting for the API and new agent to be ready before refreshing this page.
+                <p aria-live="polite" className="px-5 pb-4 text-right text-xs text-ink-subtle">
+                  The stack is back up. Waiting for the API and new agent to be ready before
+                  refreshing this page.
                 </p>
               )}
-            </form>
-          </section>
-        </div>
+            </>
+          }
+        >
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-ink-muted">Agent name</span>
+            <input
+              required
+              pattern="[a-z][a-z0-9_]{0,49}"
+              maxLength={50}
+              value={form.name}
+              onChange={(event) => updateForm('name', event.target.value)}
+              placeholder="e.g. summarizer"
+              title="Use lowercase letters, numbers, and underscores; start with a letter."
+              className="input"
+            />
+            <span className="mt-1.5 block text-xs text-ink-faint">
+              Use lowercase snake_case; hyphens and spaces are not allowed.
+            </span>
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-ink-muted">Role</span>
+            <input
+              required
+              maxLength={200}
+              value={form.role}
+              onChange={(event) => updateForm('role', event.target.value)}
+              placeholder="e.g. Research Specialist"
+              className="input"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-ink-muted">Goal</span>
+            <textarea
+              required
+              rows={3}
+              maxLength={2000}
+              value={form.goal}
+              onChange={(event) => updateForm('goal', event.target.value)}
+              placeholder="What should this agent accomplish?"
+              className="input resize-y"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-ink-muted">Backstory</span>
+            <textarea
+              required
+              rows={4}
+              maxLength={4000}
+              value={form.backstory}
+              onChange={(event) => updateForm('backstory', event.target.value)}
+              placeholder="Describe the agent's expertise and context."
+              className="input resize-y"
+            />
+          </label>
+
+          {formError && (
+            <div className="flex items-start gap-3 rounded-lg border border-danger-border bg-danger-subtle px-4 py-3 text-sm text-danger">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="flex-1">
+                <p className="whitespace-pre-wrap">{formError}</p>
+                {stackUpdateRequired && (
+                  <button
+                    type="button"
+                    onClick={retryStackUpdate}
+                    disabled={isBusy}
+                    className="btn-danger mt-3"
+                  >
+                    {restartStack.isPending ? 'Updating stack...' : 'Retry Docker Compose update'}
+                  </button>
+                )}
+                {pendingAgentRefreshName && !waitingForAgent && (
+                  <button
+                    type="button"
+                    onClick={() => void waitAndRefresh(pendingAgentRefreshName)}
+                    disabled={isBusy}
+                    className="btn-secondary mt-3"
+                  >
+                    Check readiness and refresh
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </ModalShell>
       )}
 
       {agentToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <section
-            aria-labelledby="delete-agent-title"
-            aria-modal="true"
-            className="w-full max-w-xl rounded-xl border border-gray-700 bg-[#1f2121] shadow-2xl"
-            role="dialog"
-          >
-            <div className="flex items-center justify-between border-b border-gray-800 px-6 py-4">
-              <div>
-                <h2 id="delete-agent-title" className="text-xl font-semibold text-white">
-                  Delete {agentToDelete}
-                </h2>
-                <p className="mt-1 text-sm text-gray-400">
-                  The project files, Compose worker, and agent registry entry will be removed.
-                </p>
-              </div>
+        <ModalShell
+          titleId="delete-agent-title"
+          title={`Delete ${agentToDelete}`}
+          description="The project files, Compose worker, and agent registry entry will be removed."
+          onClose={() => setAgentToDelete(null)}
+          closeDisabled={isBusy}
+          panelClassName="max-w-xl"
+          onSubmit={(event) => void submitDeleteAgent(event)}
+          footer={
+            <>
               <button
                 type="button"
                 onClick={() => setAgentToDelete(null)}
                 disabled={isBusy}
-                aria-label="Close dialog"
-                className="rounded p-2 text-gray-400 hover:bg-gray-800 hover:text-white disabled:opacity-50"
+                className="btn-secondary"
               >
-                <X className="h-5 w-5" />
+                Cancel
               </button>
+              <button
+                type="submit"
+                disabled={isBusy || deleteConfirmation !== agentToDelete}
+                className="btn-danger"
+              >
+                {waitingForRemoval
+                  ? 'Waiting for API...'
+                  : deleteAgent.isPending
+                    ? 'Deleting and rebuilding...'
+                    : 'Delete agent'}
+              </button>
+            </>
+          }
+          afterFooter={
+            (deleteAgent.isPending || waitingForRemoval) && (
+              <p aria-live="polite" className="px-5 pb-4 text-right text-xs text-ink-subtle">
+                {deleteAgent.isPending
+                  ? 'Docker is updating the stack. This can take several minutes.'
+                  : 'Waiting for the API to confirm the agent is gone before refreshing this page.'}
+              </p>
+            )
+          }
+        >
+          <div className="flex items-start gap-3 rounded-lg border border-warning-border bg-warning-subtle px-4 py-3 text-sm text-warning">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>Existing runs, traces, and history are retained. This cannot be undone.</div>
+          </div>
+
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-ink-muted">
+              Type <code className="font-mono text-ink">{agentToDelete}</code> to confirm
+            </span>
+            <input
+              required
+              autoComplete="off"
+              value={deleteConfirmation}
+              onChange={(event) => setDeleteConfirmation(event.target.value)}
+              className="input"
+            />
+          </label>
+
+          {deleteError && (
+            <div className="flex items-start gap-3 rounded-lg border border-danger-border bg-danger-subtle px-4 py-3 text-sm text-danger">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="flex-1">
+                <p className="whitespace-pre-wrap">{deleteError}</p>
+                {deleteRetryable && (
+                  <button
+                    type="button"
+                    onClick={() => void submitDeleteAgent(undefined, true)}
+                    disabled={isBusy || deleteConfirmation !== agentToDelete}
+                    className="btn-danger mt-3"
+                  >
+                    {deleteAgent.isPending
+                      ? 'Retrying deletion...'
+                      : 'Retry deletion and Docker Compose update'}
+                  </button>
+                )}
+                {pendingAgentRemovalName && !waitingForRemoval && (
+                  <button
+                    type="button"
+                    onClick={() => void waitAndRefreshRemoval(pendingAgentRemovalName)}
+                    disabled={isBusy}
+                    className="btn-secondary mt-3"
+                  >
+                    Check removal and refresh
+                  </button>
+                )}
+              </div>
             </div>
-
-            <form
-              onSubmit={(event) => void submitDeleteAgent(event)}
-              className="space-y-4 p-6"
-            >
-              <div className="rounded-lg border border-amber-900/70 bg-amber-950/30 p-3 text-sm text-amber-200">
-                Existing runs, traces, and history are retained. This cannot be undone.
-              </div>
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-gray-300">
-                  Type <code className="text-white">{agentToDelete}</code> to confirm
-                </span>
-                <input
-                  required
-                  autoComplete="off"
-                  value={deleteConfirmation}
-                  onChange={(event) => setDeleteConfirmation(event.target.value)}
-                  className="w-full rounded-lg border border-gray-700 bg-[#0d0e0e] px-3 py-2 text-white outline-none focus:border-red-400"
-                />
-              </label>
-
-              {deleteError && (
-                <div className="rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-300">
-                  <p className="whitespace-pre-wrap">{deleteError}</p>
-                  {deleteRetryable && (
-                    <button
-                      type="button"
-                      onClick={() => void submitDeleteAgent(undefined, true)}
-                      disabled={isBusy || deleteConfirmation !== agentToDelete}
-                      className="mt-3 rounded bg-red-800 px-3 py-2 font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                    >
-                      {deleteAgent.isPending
-                        ? 'Retrying deletion...'
-                        : 'Retry deletion and Docker Compose update'}
-                    </button>
-                  )}
-                  {pendingAgentRemovalName && !waitingForRemoval && (
-                    <button
-                      type="button"
-                      onClick={() => void waitAndRefreshRemoval(pendingAgentRemovalName)}
-                      disabled={isBusy}
-                      className="mt-3 rounded bg-gray-700 px-3 py-2 font-medium text-white hover:bg-gray-600 disabled:opacity-50"
-                    >
-                      Check removal and refresh
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3 border-t border-gray-800 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setAgentToDelete(null)}
-                  disabled={isBusy}
-                  className="rounded-lg border border-gray-700 px-4 py-2 text-gray-300 hover:bg-gray-800 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isBusy || deleteConfirmation !== agentToDelete}
-                  className="inline-flex items-center gap-2 rounded-lg bg-red-700 px-4 py-2 font-medium text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {waitingForRemoval
-                    ? 'Waiting for API...'
-                    : deleteAgent.isPending
-                      ? 'Deleting and rebuilding...'
-                      : 'Delete agent'}
-                </button>
-              </div>
-              {(deleteAgent.isPending || waitingForRemoval) && (
-                <p aria-live="polite" className="text-right text-xs text-gray-400">
-                  {deleteAgent.isPending
-                    ? 'Docker is updating the stack. This can take several minutes.'
-                    : 'Waiting for the API to confirm the agent is gone before refreshing this page.'}
-                </p>
-              )}
-            </form>
-          </section>
-        </div>
+          )}
+        </ModalShell>
       )}
     </div>
   );

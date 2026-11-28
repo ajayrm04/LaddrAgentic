@@ -1,49 +1,90 @@
+import { useMemo } from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Menu } from 'lucide-react';
 
-export default function Header() {
+/* Segment → human label. Keeps "Playground History" from becoming "Playground History" via dashes only. */
+const LABELS: Record<string, string> = {
+  playground: 'Playground',
+  'playground-history': 'Playground History',
+  reports: 'Reports',
+  traces: 'Traces',
+  batches: 'Batches',
+  logs: 'Logs',
+  settings: 'Settings',
+  graphs: 'Graphs',
+  agents: 'Agents',
+  dashboard: 'Dashboard',
+};
+
+function toLabel(segment: string) {
+  const decoded = decodeURIComponent(segment);
+  if (LABELS[decoded]) return LABELS[decoded];
+  return decoded
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+interface HeaderProps {
+  onOpenMobileNav: () => void;
+}
+
+export default function Header({ onOpenMobileNav }: HeaderProps) {
   const location = useLocation();
 
-  const getBreadcrumbs = () => {
-    const paths = location.pathname.split('/').filter(Boolean);
-    const breadcrumbs = [{ name: 'Home', path: '/' }];
-
-    let currentPath = '';
-    paths.forEach((segment) => {
-      currentPath += `/${segment}`;
-      const decodedSegment = decodeURIComponent(segment); // ✅ Decode "%20" → " "
-      const name = decodedSegment
-        .split('-')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ');
-      breadcrumbs.push({ name, path: currentPath });
+  const breadcrumbs = useMemo(() => {
+    const segments = location.pathname.split('/').filter(Boolean);
+    const crumbs = [{ name: 'Home', path: '/' }];
+    let current = '';
+    segments.forEach((segment) => {
+      current += `/${segment}`;
+      crumbs.push({ name: toLabel(segment), path: current });
     });
-
-    return breadcrumbs;
-  };
-
-  const breadcrumbs = getBreadcrumbs();
+    return crumbs;
+  }, [location.pathname]);
 
   return (
-    <header className="h-14 bg-[#191A1A] border-b border-gray-800 flex items-center px-6">
-      <nav className="flex items-center gap-2 text-sm">
-        {breadcrumbs.map((crumb, index) => (
-          <div key={crumb.path} className="flex items-center gap-2">
-            {index === breadcrumbs.length - 1 ? (
-              <span className="text-cyan-400 font-medium">{crumb.name}</span>
-            ) : (
-              <>
-                <Link
-                  to={crumb.path}
-                  className="text-gray-400 hover:text-gray-300 transition-colors"
-                >
-                  {crumb.name}
-                </Link>
-                <ChevronRight className="w-4 h-4 text-gray-500" />
-              </>
-            )}
-          </div>
-        ))}
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface/85 px-4 backdrop-blur-md sm:px-6">
+      <button
+        onClick={onOpenMobileNav}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-muted
+          hover:bg-surface-overlay hover:text-ink transition-colors md:hidden"
+        aria-label="Open navigation"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
+      <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
+        <ol className="flex items-center gap-1.5 overflow-hidden text-sm">
+          {breadcrumbs.map((crumb, index) => {
+            const isLast = index === breadcrumbs.length - 1;
+            return (
+              <li key={crumb.path} className="flex items-center gap-1.5 min-w-0">
+                {index > 0 && (
+                  <ChevronRight
+                    className="h-3.5 w-3.5 shrink-0 text-ink-faint"
+                    aria-hidden
+                  />
+                )}
+                {isLast ? (
+                  <span
+                    className="truncate font-medium text-ink"
+                    aria-current="page"
+                  >
+                    {crumb.name}
+                  </span>
+                ) : (
+                  <Link
+                    to={crumb.path}
+                    className="shrink-0 text-ink-subtle transition-colors hover:text-ink"
+                  >
+                    {crumb.name}
+                  </Link>
+                )}
+              </li>
+            );
+          })}
+        </ol>
       </nav>
     </header>
   );
