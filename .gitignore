@@ -35,4 +35,5 @@ test-parallel-project
 my-agent
 examples
 docs
-mailer
+mailervenv/
+laddr.db

@@ -456,7 +456,7 @@ class Agent:
         self._discover_tool_overrides()
 
         # Pass self (agent instance) so system tools can access current_job_id
-        system_tools = create_system_tools(self.bus, self.storage, agent=self)
+        system_tools = create_system_tools(self.bus, self.storage, agent=self, database=self.database)
 
         # Disallow any system tool that could bypass delegation safeguards
         reserved = {"delegate", "publish", "publish_task"}
@@ -488,7 +488,7 @@ class Agent:
             
             # Register each system tool with the explicit provided name,
             # not the callable's __name__, so both prefixed and alias names exist.
-            if not self.tools.has(name):
+            if not self.tools.has(name) or name.startswith("system_read_blackboard") or name.startswith("system_write_blackboard") or name.startswith("system_list_blackboard"):
                 try:
                     desc = (func.__doc__ or "").strip().split("\n")[0]
                     
@@ -608,6 +608,69 @@ class Agent:
             }
         ]
 
+    # --- Shared blackboard helpers -------------------------------------
+
+    def _blackboard_note(self, key: str, value: Any) -> None:
+        """Best-effort write to the shared blackboard for this job.
+
+        Runtime-driven writes are the reliability guarantee: even if the LLM
+        never chooses to call ``system_write_blackboard``, every decision and
+        tool result is recorded here with agent attribution.
+        """
+        try:
+            if not self.current_job_id or self.database is None:
+                return
+            self.database.set_blackboard_value(
+                self.current_job_id, key, value, updated_by=self.config.name
+            )
+        except Exception:
+            logger.debug("blackboard note failed", exc_info=True)
+
+    @staticmethod
+    def _shorten(value: Any, limit: int = 320) -> str:
+        try:
+            if isinstance(value, str):
+                text = value
+            else:
+                text = json.dumps(value, ensure_ascii=False, default=str)
+        except Exception:
+            text = str(value)
+        text = " ".join(text.split())
+        return text if len(text) <= limit else text[:limit] + "…"
+
+    def _blackboard_log_action(self, iteration: int, action: dict) -> None:
+        """Record an agent's decision for this iteration."""
+        try:
+            atype = action.get("type")
+            if atype == "tool":
+                text = f"Tool call: {action.get('tool')} {self._shorten(action.get('params') or {})}"
+            elif atype == "delegate":
+                text = f"Delegate to {action.get('agent')}: {self._shorten(action.get('task', ''))}"
+            elif atype == "finish":
+                text = f"Finishing: {self._shorten(action.get('answer', ''))}"
+            else:
+                text = f"{atype or 'thought'}: {self._shorten(action.get('thought') or action)}"
+            self._blackboard_note(f"step_{self.config.name}_{iteration:02d}", text)
+        except Exception:
+            pass
+
+    def _blackboard_log_result(self, iteration: int, tool_name: str, result: Any, error: Any = None) -> None:
+        """Record the outcome of an iteration's tool call."""
+        try:
+            if error is not None:
+                text = f"{tool_name} error: {self._shorten(error)}"
+            else:
+                text = f"{tool_name} -> {self._shorten(result)}"
+            self._blackboard_note(f"step_{self.config.name}_{iteration:02d}_result", text)
+        except Exception:
+            pass
+
+    def _blackboard_set_status(self, status: str) -> None:
+        try:
+            self._blackboard_note(f"status_{self.config.name}", status)
+        except Exception:
+            pass
+
     async def handle(self, task: dict) -> dict:
         """
         Handle a task: plan, execute, return result.
@@ -626,6 +689,17 @@ class Agent:
         # Set up job context (support both job_id and prompt_id for compatibility)
         execution_id = task.get("prompt_id") or task.get("job_id") or str(uuid.uuid4())
         self.current_job_id = execution_id  # Keep internal name for now
+
+        # Bind a per-task blackboard context. This is what guarantees that
+        # blackboard tool calls resolve to *this* agent's database/job even when
+        # several agents run concurrently and share a ToolRegistry instance.
+        try:
+            from .system_tools import set_blackboard_context
+            self._blackboard_ctx_token = set_blackboard_context(
+                self.database, execution_id, self.config.name
+            )
+        except Exception:
+            self._blackboard_ctx_token = None
         
         # Enable live streaming when requested (default off for backward compat)
         self._stream_enabled = bool(task.get("stream", False))
@@ -724,6 +798,23 @@ class Agent:
                 )
                 
                 result = await self.execute_plan(plan, task)
+
+            # Ensure the shared blackboard always reflects this agent's outcome,
+            # even on paths that never reached an explicit `finish` action.
+            try:
+                rstatus = result.get("status") if isinstance(result, dict) else "success"
+                payload = result.get("result", result) if isinstance(result, dict) else result
+                if payload and not self.database.get_blackboard_value(
+                    execution_id, f"result_{self.config.name}"
+                ):
+                    self._blackboard_note(
+                        f"result_{self.config.name}", self._shorten(payload, 4000)
+                    )
+                self._blackboard_set_status(
+                    "finished" if (rstatus or "success") == "success" else str(rstatus)
+                )
+            except Exception:
+                pass
 
             # Trace completion / final state
             task_ended_at = _dt.utcnow().isoformat() + "Z"
@@ -825,6 +916,13 @@ class Agent:
                 "prompt_id": execution_id
             })
         finally:
+            # Release the per-task blackboard context (best effort).
+            try:
+                from .system_tools import reset_blackboard_context
+                reset_blackboard_context(getattr(self, "_blackboard_ctx_token", None))
+            except Exception:
+                pass
+
             # Always end Langfuse span for this job if it was started
             if self._langfuse_span is not None:
                 try:
@@ -1359,6 +1457,34 @@ class Agent:
                 iteration
             )
             
+            # Inject current blackboard state so the agent sees what others wrote
+            # without explicit polling — it's refreshed at every decision point.
+            try:
+                bb = self.database.get_blackboard(self.current_job_id or "unknown")
+                if bb:
+                    # Always show the task first, then the most recent activity.
+                    # Values are shortened and the activity log is capped so the
+                    # prompt stays bounded as the blackboard grows.
+                    items = list(bb.items())
+                    items.sort(key=lambda kv: (kv[1] or {}).get("updated_at") or "")
+                    pinned = [kv for kv in items if kv[0] in ("task", "goal")]
+                    recent = [kv for kv in items if kv[0] not in ("task", "goal")][-45:]
+                    bb_lines = ["\n\nSHARED BLACKBOARD (written by agents in this run):"]
+                    for k, v in (pinned + recent):
+                        v = v or {}
+                        bb_lines.append(
+                            f"- {k} (by {v.get('updated_by')}): {self._shorten(v.get('value'), 400)}"
+                        )
+                    user_prompt = user_prompt + "\n".join(bb_lines)
+                else:
+                    user_prompt = user_prompt + "\n\nSHARED BLACKBOARD: (empty - you MUST be the first to write a plan or finding! Use system_write_blackboard NOW.)"
+            except Exception:
+                pass
+
+            # Force blackboard usage on first iteration
+            if iteration == start_iteration:
+                user_prompt = user_prompt + "\n\nMANDATORY: Before finishing, you MUST call system_write_blackboard at least once to share your findings with other agents. Other agents are running in parallel and depend on your blackboard writes. Do NOT finish without writing to the blackboard."
+
             # Get LLM decision
             from datetime import datetime as _dt
             think_started = _dt.utcnow().isoformat() + "Z"
@@ -1395,8 +1521,28 @@ class Agent:
                 action.get("type"),
                 {k: v for k, v in action.items() if k != "answer"}
             )
+
+            # Record this decision on the shared blackboard (runtime-driven,
+            # so it works even if the model never calls the tool itself).
+            self._blackboard_log_action(iteration, action)
+            self._blackboard_set_status("working")
             
             if action["type"] == "finish":
+                # Seed the blackboard with this agent's final answer so other
+                # agents (and the UI) always have something to read.
+                try:
+                    answer_text = action.get("answer", "")
+                    if answer_text:
+                        key = f"result_{self.config.name}"
+                        self.database.set_blackboard_value(
+                            self.current_job_id or "unknown",
+                            key,
+                            answer_text,
+                            updated_by=self.config.name,
+                        )
+                except Exception:
+                    pass
+                self._blackboard_set_status("finished")
                 # Agent is done - check if it's actually a successful completion or an error
                 answer = action.get("answer", response)
                 
@@ -1551,6 +1697,7 @@ class Agent:
                             "params": tool_params,
                             "result": tool_result
                         })
+                        self._blackboard_log_result(iteration, tool_name, tool_result)
                     except Exception as e:
                         logger.exception("[%s] tool error for %s: %s", self.config.name, tool_name, e)
                         history.append({
@@ -1559,6 +1706,7 @@ class Agent:
                             "params": tool_params,
                             "error": str(e)
                         })
+                        self._blackboard_log_result(iteration, tool_name, None, error=str(e))
             
             elif action["type"] == "delegate":
                 # Delegate to another agent
@@ -1718,6 +1866,16 @@ Provide a clear, complete final answer based on this information."""
                     
                     try:
                         final_answer = await self._llm_generate(synthesis_prompt)
+                        try:
+                            self.database.set_blackboard_value(
+                                self.current_job_id or "unknown",
+                                f"result_{self.config.name}",
+                                final_answer,
+                                updated_by=self.config.name,
+                            )
+                        except Exception:
+                            pass
+                        self._blackboard_set_status("finished")
                         return {
                             "status": "success",
                             "result": final_answer,
@@ -1986,6 +2144,27 @@ To delegate a task:
 
 ⚠️ DO NOT use system_retrieve_artifact to search for data - use your domain tools instead!
 """
+
+        system += """
+### Shared Blackboard (for collaboration with other agents):
+You have access to a shared blackboard where agents post findings for each other.
+- system_read_blackboard: Read a value by key, or list all keys if key is empty
+  Example: {{"type":"tool","tool":"system_read_blackboard","params":{{"key":"plan"}}}}
+  Example: {{"type":"tool","tool":"system_read_blackboard","params":{{"key":""}}}}
+- system_write_blackboard: Post a finding, plan, or result for other agents
+  Example: {{"type":"tool","tool":"system_write_blackboard","params":{{"key":"finding_1","value":"Hindi is most spoken (528M)"}}}}
+- system_list_blackboard: List all keys on the blackboard
+  Example: {{"type":"tool","tool":"system_list_blackboard","params":{{}}}}
+
+IMPORTANT COLLABORATION RULES (MANDATORY):
+- You MUST call system_write_blackboard at least once before finishing.
+- At the start, call system_list_blackboard to see what other agents have posted.
+- After you find something useful, WRITE IT to the blackboard with system_write_blackboard so other agents can use it.
+- Use descriptive keys like "finding_X", "plan", "synthesis", "sources".
+- The blackboard tracks who wrote each entry automatically (your agent name).
+- Other agents are running in parallel and reading the blackboard. Your writes help them.
+- DO NOT finish without writing at least one finding to the blackboard. This is required.
+""".format(name=self.config.name)
 
         system += """
 When you complete the task:

@@ -16,6 +16,8 @@ import Batches from './pages/Batches';
 import BatchDetail from './pages/BatchDetail';
 import Logs from './pages/Logs';
 import Settings from './pages/Settings';
+import Graphs from './pages/Graphs';
+import GraphEditor from './pages/GraphEditor';
 import './App.css';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -46,6 +48,8 @@ function App() {
                 <Route path="/batches/:batchId" element={<BatchDetail />} />
                 <Route path="/logs" element={<Logs />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/graphs" element={<Graphs />} />
+                <Route path="/graphs/:graphId" element={<GraphEditor />} />
               </Routes>
             </Layout>
           </ProtectedRoute>

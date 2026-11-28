@@ -112,6 +112,54 @@ class Memory(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class Graph(Base):
+    """Visual agent workflow graph."""
+
+    __tablename__ = "graphs"
+
+    graph_id = Column(String(36), primary_key=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    owner = Column(String(255), nullable=True)
+    version = Column(Integer, default=1)
+    nodes = Column(JSON, nullable=False, default=list)   # [{id,type,agent_name,tool_name,config,position:{x,y}}]
+    edges = Column(JSON, nullable=False, default=list)   # [{id,source,target,condition,label}]
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class GraphRun(Base):
+    """An execution of a graph."""
+
+    __tablename__ = "graph_runs"
+
+    run_id = Column(String(36), primary_key=True)
+    graph_id = Column(String(36), nullable=False, index=True)
+    version = Column(Integer, nullable=True)
+    status = Column(String(50), default="pending")  # pending|running|completed|failed|awaiting_approval
+    inputs = Column(JSON, nullable=True)
+    outputs = Column(JSON, nullable=True)
+    node_results = Column(JSON, nullable=True)  # {node_id: {status,output,error,started_at,completed_at}}
+    error = Column(Text, nullable=True)
+    trace_job_id = Column(String(36), nullable=True, index=True)
+    approval_node_id = Column(String(255), nullable=True)
+    approval_payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    completed_at = Column(DateTime, nullable=True)
+
+class BlackboardEntry(Base):
+    """Shared key-value state for a job, written by agents."""
+
+    __tablename__ = "blackboard"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String(36), nullable=False, index=True)
+    key = Column(String(255), nullable=False, index=True)
+    value = Column(JSON, nullable=True)
+    updated_by = Column(String(255), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class AgentRegistry(Base):
     """Agent registration and metadata."""
 
@@ -565,6 +613,189 @@ class DatabaseService:
         """Return the total number of reports."""
         with self.get_session() as session:
             return session.query(Report).count()
+
+    # Graphs
+    def create_graph(self, name, description=None, owner=None, nodes=None, edges=None) -> str:
+        import uuid as _uuid
+        graph_id = str(_uuid.uuid4())
+        with self.get_session() as session:
+            graph = Graph(
+                graph_id=graph_id,
+                name=name,
+                description=description,
+                owner=owner,
+                version=1,
+                nodes=_json_safe(nodes or []),
+                edges=_json_safe(edges or []),
+            )
+            session.add(graph)
+        return graph_id
+
+    def get_graph(self, graph_id: str) -> dict | None:
+        with self.get_session() as session:
+            g = session.query(Graph).filter_by(graph_id=graph_id).first()
+            if not g:
+                return None
+            return {
+                "graph_id": g.graph_id,
+                "name": g.name,
+                "description": g.description,
+                "owner": g.owner,
+                "version": g.version,
+                "nodes": g.nodes or [],
+                "edges": g.edges or [],
+                "created_at": _iso_z(g.created_at),
+                "updated_at": _iso_z(g.updated_at),
+            }
+
+    def list_graphs(self, limit=50, owner=None) -> list[dict]:
+        with self.get_session() as session:
+            q = session.query(Graph)
+            if owner:
+                q = q.filter(Graph.owner == owner)
+            rows = q.order_by(Graph.updated_at.desc()).limit(limit).all()
+            return [
+                {
+                    "graph_id": g.graph_id,
+                    "name": g.name,
+                    "description": g.description,
+                    "owner": g.owner,
+                    "version": g.version,
+                    "node_count": len(g.nodes or []),
+                    "edge_count": len(g.edges or []),
+                    "created_at": _iso_z(g.created_at),
+                    "updated_at": _iso_z(g.updated_at),
+                }
+                for g in rows
+            ]
+
+    def update_graph(self, graph_id: str, **fields) -> bool:
+        allowed = {"name", "description", "nodes", "edges", "version"}
+        with self.get_session() as session:
+            g = session.query(Graph).filter_by(graph_id=graph_id).first()
+            if not g:
+                return False
+            for k, v in fields.items():
+                if k in allowed:
+                    if k in ("nodes", "edges"):
+                        v = _json_safe(v)
+                    setattr(g, k, v)
+            g.updated_at = datetime.utcnow()
+            # bump version when structure changes
+            if "nodes" in fields or "edges" in fields:
+                g.version = (g.version or 1) + 1
+        return True
+
+    def delete_graph(self, graph_id: str) -> bool:
+        with self.get_session() as session:
+            g = session.query(Graph).filter_by(graph_id=graph_id).first()
+            if not g:
+                return False
+            session.delete(g)
+        return True
+
+    def create_graph_run(self, graph_id: str, version: int | None = None, inputs: dict | None = None) -> str:
+        import uuid as _uuid
+        run_id = str(_uuid.uuid4())
+        with self.get_session() as session:
+            run = GraphRun(
+                run_id=run_id,
+                graph_id=graph_id,
+                version=version,
+                status="pending",
+                inputs=_json_safe(inputs or {}),
+                node_results=_json_safe({}),
+            )
+            session.add(run)
+        return run_id
+
+    def get_graph_run(self, run_id: str) -> dict | None:
+        with self.get_session() as session:
+            r = session.query(GraphRun).filter_by(run_id=run_id).first()
+            if not r:
+                return None
+            return {
+                "run_id": r.run_id,
+                "graph_id": r.graph_id,
+                "version": r.version,
+                "status": r.status,
+                "inputs": r.inputs or {},
+                "outputs": r.outputs,
+                "node_results": r.node_results or {},
+                "error": r.error,
+                "trace_job_id": r.trace_job_id,
+                "approval_node_id": r.approval_node_id,
+                "approval_payload": r.approval_payload,
+                "created_at": _iso_z(r.created_at),
+                "completed_at": _iso_z(r.completed_at),
+            }
+
+    def list_graph_runs(self, graph_id: str, limit: int = 50) -> list[dict]:
+        with self.get_session() as session:
+            rows = (
+                session.query(GraphRun)
+                .filter(GraphRun.graph_id == graph_id)
+                .order_by(GraphRun.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [
+                {
+                    "run_id": r.run_id,
+                    "graph_id": r.graph_id,
+                    "version": r.version,
+                    "status": r.status,
+                    "created_at": _iso_z(r.created_at),
+                    "completed_at": _iso_z(r.completed_at),
+                    "error": r.error,
+                }
+                for r in rows
+            ]
+
+    def update_graph_run(self, run_id: str, **fields) -> bool:
+        allowed = {"status", "outputs", "node_results", "error", "trace_job_id", "approval_node_id", "approval_payload", "completed_at", "version"}
+        with self.get_session() as session:
+            r = session.query(GraphRun).filter_by(run_id=run_id).first()
+            if not r:
+                return False
+            for k, v in fields.items():
+                if k in allowed:
+                    if k in ("outputs", "node_results", "approval_payload", "inputs"):
+                        v = _json_safe(v)
+                    setattr(r, k, v)
+        return True
+
+    # Blackboard (shared state)
+    def get_blackboard(self, job_id: str) -> dict:
+        """Return all blackboard entries for a job as a dict."""
+        with self.get_session() as session:
+            rows = session.query(BlackboardEntry).filter(BlackboardEntry.job_id == job_id).all()
+            return {r.key: {"value": r.value, "updated_by": r.updated_by, "updated_at": _iso_z(r.updated_at)} for r in rows}
+
+    def get_blackboard_value(self, job_id: str, key: str) -> dict | None:
+        with self.get_session() as session:
+            r = session.query(BlackboardEntry).filter(BlackboardEntry.job_id == job_id, BlackboardEntry.key == key).first()
+            if not r:
+                return None
+            return {"key": r.key, "value": r.value, "updated_by": r.updated_by, "updated_at": _iso_z(r.updated_at)}
+
+    def set_blackboard_value(self, job_id: str, key: str, value, updated_by: str | None = None) -> None:
+        with self.get_session() as session:
+            r = session.query(BlackboardEntry).filter(BlackboardEntry.job_id == job_id, BlackboardEntry.key == key).first()
+            if r:
+                r.value = _json_safe(value)
+                r.updated_by = updated_by
+                r.updated_at = datetime.utcnow()
+            else:
+                session.add(BlackboardEntry(job_id=job_id, key=key, value=_json_safe(value), updated_by=updated_by))
+
+    def delete_blackboard_key(self, job_id: str, key: str) -> bool:
+        with self.get_session() as session:
+            r = session.query(BlackboardEntry).filter(BlackboardEntry.job_id == job_id, BlackboardEntry.key == key).first()
+            if not r:
+                return False
+            session.delete(r)
+        return True
 
     def get_job_traces(self, job_ids: str | list[str]) -> list[dict]:
         """Get all traces for one or more jobs."""

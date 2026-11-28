@@ -1,4 +1,5 @@
 import { useParams, Link } from 'react-router-dom';
+import BlackboardPanel from '../components/BlackboardPanel';
 import { usePrompt } from '../lib/queries/prompts';
 import { usePlaygroundTraces } from '../lib/hooks/useWebSocket';
 import { useCancelPlayground } from '../lib/queries/playground';
@@ -432,6 +433,8 @@ export default function PlaygroundDetail() {
           </div>
         </div>
       )}
+
+      <BlackboardPanel promptId={promptId!} />
 
       {/* Live Traces Section */}
       {(prompt.status === 'running' || spans.length > 0) && (

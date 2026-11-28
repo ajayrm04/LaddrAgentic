@@ -44,7 +44,8 @@ from laddr.core.reports import (
     coerce_answer,
     extract_question,
 )
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Request
+from laddr.core.graphs import GraphExecutor, GraphValidationError, validate_graph
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from pydantic import BaseModel
@@ -61,7 +62,7 @@ class SubmitPromptRequest(BaseModel):
     """Request to submit a new prompt execution."""
     prompt_name: str
     inputs: dict[str, Any]
-    mode: str = "single"  # "single" or "sequential"
+    mode: str = "single"  # "single", "sequential", or "blackboard"
     agents: list[str] | None = None  # For sequential mode: ordered list of agents
     stream: bool = True  # Enable live token streaming to the dashboard
 
@@ -108,6 +109,43 @@ class BackfillReportsRequest(BaseModel):
     prompt_ids: list[str] | None = None
     limit: int = 20
     force: bool = False
+
+
+class GraphNodeModel(BaseModel):
+    id: str
+    type: str
+    agent_name: str | None = None
+    tool_name: str | None = None
+    config: dict[str, Any] | None = None
+    position: dict[str, Any] | None = None
+
+
+class GraphEdgeModel(BaseModel):
+    id: str | None = None
+    source: str
+    target: str
+    condition: dict[str, Any] | None = None
+    label: str | None = None
+
+
+class CreateGraphRequest(BaseModel):
+    name: str
+    description: str | None = None
+    owner: str | None = None
+    nodes: list[GraphNodeModel] = []
+    edges: list[GraphEdgeModel] = []
+
+
+class UpdateGraphRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    nodes: list[GraphNodeModel] | None = None
+    edges: list[GraphEdgeModel] | None = None
+
+
+class RunGraphRequest(BaseModel):
+    inputs: dict[str, Any] = {}
+    stream: bool = False
 
 
 class AgentInfo(BaseModel):
@@ -206,6 +244,7 @@ async def _run_sequential_chain(runner: AgentRunner, agent_names: list[str], inp
                     "status": "error",
                     "error": f"Sequential chain failed at {agent_name}: {result.get('error')}",
                     "agent": agent_name,
+                    "result": last_result,
                     "results": results
                 }
             
@@ -227,6 +266,7 @@ async def _run_sequential_chain(runner: AgentRunner, agent_names: list[str], inp
                 "status": "error",
                 "error": f"Sequential chain failed at {agent_name}: {e}",
                 "agent": agent_name,
+                "result": last_result,
                 "results": results
             }
     
@@ -239,7 +279,101 @@ async def _run_sequential_chain(runner: AgentRunner, agent_names: list[str], inp
     }
 
 
-# Create FastAPI app
+async def _run_blackboard_chain(runner: AgentRunner, agent_names: list[str], inputs: dict, job_id: str, stream: bool = True) -> dict:
+    """
+    Run multiple agents in parallel, sharing a blackboard for collaboration.
+
+    All agents receive the same initial inputs plus stream flag. They
+    collaborate via the shared blackboard (auto-injected into each agent's
+    context at every LLM call). Agents run concurrently via asyncio.gather.
+
+    Returns the result of the last agent in the list (or a combined result).
+    """
+    import asyncio
+
+    # Seed the blackboard so it's never empty and agents see who's active.
+    # Use the runner's database so the seed lands in the same store the agents
+    # will read from (the module-level `database` is not guaranteed to be it).
+    try:
+        bb_db = getattr(runner, "database", None) or database
+        task_text = (inputs or {}).get("query") or (inputs or {}).get("prompt") or str(inputs)
+        bb_db.set_blackboard_value(job_id, "task", task_text, updated_by="system")
+        for a in agent_names:
+            bb_db.set_blackboard_value(job_id, f"status_{a}", "started", updated_by=a)
+    except Exception:
+        pass
+
+    async def _run_one(agent_name: str):
+        run_inputs = dict(inputs or {})
+        run_inputs["stream"] = stream
+        run_inputs["_allow_delegation"] = False
+        run_inputs["job_id"] = job_id
+        try:
+            result = await runner.run(run_inputs, agent_name=agent_name, job_id=job_id)
+            return agent_name, result
+        except Exception as e:
+            return agent_name, {"status": "error", "error": str(e), "agent": agent_name}
+
+    try:
+        gathered = await asyncio.gather(*[_run_one(a) for a in agent_names], return_exceptions=True)
+    except Exception as e:
+        return {"status": "error", "error": f"Blackboard run failed: {e}", "mode": "blackboard"}
+
+    results = []
+    for item in gathered:
+        if isinstance(item, Exception):
+            results.append({"agent": "unknown", "status": "error", "error": str(item)})
+        else:
+            agent_name, result = item
+            results.append({"agent": agent_name, "status": result.get("status", "completed"), "result": result.get("result"), "error": result.get("error")})
+
+    # Determine the best available answer.
+    # "Last best possible answer": prefer the last agent that produced a
+    # non-empty result, even if some (or most) agents failed. Only when no
+    # agent produced anything do we surface the combined error.
+    def _has_result(value) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, (str, list, dict, tuple, set)):
+            return len(value) > 0
+        return True
+
+    succeeded = [
+        r for r in results
+        if r.get("status") not in ("error", "failed")
+        and _has_result(r.get("result"))
+        and not r.get("error")
+    ]
+    failed = [
+        r for r in results
+        if r.get("status") in ("error", "failed") or r.get("error")
+    ]
+
+    if succeeded:
+        final_result = succeeded[-1].get("result")
+        overall = "success"
+        error = None
+    elif failed:
+        final_result = None
+        overall = "error"
+        error = "; ".join(
+            f"{r.get('agent')}: {r.get('error') or r.get('status') or 'failed'}"
+            for r in failed
+        )
+    else:
+        final_result = None
+        overall = "error"
+        error = "Blackboard run produced no agent output."
+
+    return {
+        "status": overall,
+        "result": final_result,
+        "error": error,
+        "mode": "blackboard",
+        "agents": agent_names,
+        "results": results,
+    }
+
 app = FastAPI(
     title="Laddr API",
     description="API for Laddr distributed agent framework",
@@ -558,6 +692,8 @@ async def submit_prompt(request: SubmitPromptRequest, _: None = require_api_key)
                 # Sequential mode: run multiple agents in order
                 if request.mode == "sequential" and request.agents and len(request.agents) > 1:
                     result = await _run_sequential_chain(runner, request.agents, request.inputs, pid, stream=request.stream)
+                elif request.mode == "blackboard" and request.agents and len(request.agents) > 1:
+                    result = await _run_blackboard_chain(runner, request.agents, request.inputs, pid, stream=request.stream)
                 else:
                     # Single agent mode (default)
                     # For single-mode prompt executions initiated from the API UI,
@@ -580,12 +716,27 @@ async def submit_prompt(request: SubmitPromptRequest, _: None = require_api_key)
 
                 # Map status to prompt status
                 status = result.get("status", "failed")
-                outputs = result.get("result") or {}
+                outputs = result.get("result")
                 error = result.get("error")
 
-                # Prefer explicit outputs; if only error present, store that
-                if error and not outputs:
-                    outputs = {"error": error}
+                # Always surface the error to the UI while preserving any
+                # partial/best-effort answer that was produced.
+                def _empty(v) -> bool:
+                    if v is None:
+                        return True
+                    if isinstance(v, (str, list, dict, tuple, set)):
+                        return len(v) == 0
+                    return False
+
+                if error:
+                    if _empty(outputs):
+                        outputs = {"error": error}
+                    elif isinstance(outputs, dict):
+                        outputs = {**outputs, "error": error}
+                    else:
+                        outputs = {"result": outputs, "error": error}
+                elif outputs is None:
+                    outputs = {}
 
                 # Normalize success to 'completed'
                 prompt_status = "completed" if status == "success" else status
@@ -930,6 +1081,218 @@ async def delete_report(report_id: str, _: None = require_api_key):
     if not database.delete_report(report_id):
         raise HTTPException(status_code=404, detail="Report not found")
     return {"ok": True, "report_id": report_id}
+
+
+# --- Graph Endpoints ---
+
+@app.get("/api/graphs")
+async def list_graphs(limit: int = 50, owner: str | None = None, _: None = require_api_key):
+    try:
+        return {"graphs": database.list_graphs(limit=limit, owner=owner)}
+    except Exception as e:
+        logger.exception("Failed to list graphs")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/graphs")
+async def create_graph(request: CreateGraphRequest, _: None = require_api_key):
+    try:
+        nodes = [n.model_dump() for n in request.nodes]
+        edges = [e.model_dump() for e in request.edges]
+        validate_graph(nodes, edges)
+    except GraphValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    graph_id = database.create_graph(
+        name=request.name,
+        description=request.description,
+        owner=request.owner,
+        nodes=nodes,
+        edges=edges,
+    )
+    return database.get_graph(graph_id)
+
+
+@app.get("/api/graphs/{graph_id}")
+async def get_graph(graph_id: str, _: None = require_api_key):
+    graph = database.get_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail="Graph not found")
+    return graph
+
+
+@app.put("/api/graphs/{graph_id}")
+async def update_graph(graph_id: str, request: UpdateGraphRequest, _: None = require_api_key):
+    graph = database.get_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail="Graph not found")
+    fields = {}
+    if request.name is not None:
+        fields["name"] = request.name
+    if request.description is not None:
+        fields["description"] = request.description
+    if request.nodes is not None:
+        nodes = [n.model_dump() for n in request.nodes]
+        edges = [e.model_dump() for e in (request.edges or [])] if request.edges is not None else graph["edges"]
+        try:
+            validate_graph(nodes, edges)
+        except GraphValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        fields["nodes"] = nodes
+    if request.edges is not None:
+        edges = [e.model_dump() for e in request.edges]
+        nodes = graph["nodes"] if request.nodes is None else [n.model_dump() for n in request.nodes]
+        try:
+            validate_graph(nodes, edges)
+        except GraphValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        fields["edges"] = edges
+    database.update_graph(graph_id, **fields)
+    return database.get_graph(graph_id)
+
+
+@app.delete("/api/graphs/{graph_id}")
+async def delete_graph(graph_id: str, _: None = require_api_key):
+    if not database.delete_graph(graph_id):
+        raise HTTPException(status_code=404, detail="Graph not found")
+    return {"ok": True, "graph_id": graph_id}
+
+
+@app.post("/api/graphs/{graph_id}/run")
+async def run_graph(graph_id: str, request: RunGraphRequest, background_tasks: BackgroundTasks, _: None = require_api_key):
+    graph = database.get_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail="Graph not found")
+    # Create a prompt execution so this run shows up in Playground History,
+    # produces traces, and can generate a report — unified with normal runs.
+    prompt_id = database.create_prompt(None, f"graph:{graph['name']}", request.inputs or {})
+    database.update_prompt_status(prompt_id, "running")
+
+    run_id = database.create_graph_run(graph_id=graph_id, version=graph["version"], inputs=request.inputs)
+    database.update_graph_run(run_id, status="running", trace_job_id=prompt_id)
+
+    async def _run():
+        try:
+            runner = AgentRunner(env_config=config)
+            executor = GraphExecutor(runner, database)
+            result = await executor.run(graph, request.inputs, prompt_id)
+            status = result.get("status", "completed")
+            outputs = result.get("outputs")
+            # Normalize for prompt_executions (expects dict/str)
+            if outputs is None:
+                outputs = {}
+            database.save_prompt_result(prompt_id, outputs if isinstance(outputs, dict) else {"result": outputs}, status="completed" if status == "completed" else status)
+            database.update_graph_run(
+                run_id,
+                status=status,
+                outputs=outputs,
+                node_results=result.get("node_results"),
+                completed_at=datetime.utcnow(),
+            )
+            # Best-effort report generation
+            if status == "completed" and report_service is not None:
+                try:
+                    traces = database.get_job_traces(prompt_id)
+                    from laddr.core.reports import coerce_answer, extract_question
+                    await report_service.compile_for_prompt(
+                        prompt_id=prompt_id,
+                        question=extract_question(request.inputs or {}),
+                        answer=outputs,
+                        traces=traces,
+                        agent_name=f"graph:{graph['name']}",
+                    )
+                except Exception:
+                    logger.exception("Report compilation failed for graph run %s", run_id)
+        except Exception as exc:
+            logger.exception("Graph run failed")
+            database.update_graph_run(run_id, status="failed", error=str(exc), completed_at=datetime.utcnow())
+            database.save_prompt_result(prompt_id, {"error": str(exc)}, status="failed")
+
+    background_tasks.add_task(_run)
+    run = database.get_graph_run(run_id)
+    run["prompt_id"] = prompt_id
+    return run
+
+
+@app.get("/api/graphs/{graph_id}/runs")
+async def list_graph_runs(graph_id: str, limit: int = 50, _: None = require_api_key):
+    if not database.get_graph(graph_id):
+        raise HTTPException(status_code=404, detail="Graph not found")
+    return {"runs": database.list_graph_runs(graph_id, limit=limit)}
+
+
+@app.get("/api/graphs/{graph_id}/runs/{run_id}")
+async def get_graph_run(graph_id: str, run_id: str, _: None = require_api_key):
+    run = database.get_graph_run(run_id)
+    if not run or run["graph_id"] != graph_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
+
+
+@app.post("/api/graphs/{graph_id}/runs/{run_id}/approve")
+async def approve_graph_run(graph_id: str, run_id: str, _: None = require_api_key):
+    run = database.get_graph_run(run_id)
+    if not run or run["graph_id"] != graph_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+    database.update_graph_run(run_id, status="running", approval_node_id=None, approval_payload=None)
+    return database.get_graph_run(run_id)
+
+
+@app.get("/api/graphs/{graph_id}/export")
+async def export_graph(graph_id: str, _: None = require_api_key):
+    graph = database.get_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail="Graph not found")
+    return {"graph": graph}
+
+
+@app.post("/api/graphs/import")
+async def import_graph(request: CreateGraphRequest, _: None = require_api_key):
+    nodes = [n.model_dump() for n in request.nodes]
+    edges = [e.model_dump() for e in request.edges]
+    try:
+        validate_graph(nodes, edges)
+    except GraphValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    graph_id = database.create_graph(
+        name=request.name,
+        description=request.description,
+        owner=request.owner,
+        nodes=nodes,
+        edges=edges,
+    )
+    return database.get_graph(graph_id)
+
+
+# --- Blackboard Endpoints ---
+
+@app.get("/api/blackboard/{job_id}")
+async def get_blackboard(job_id: str, _: None = require_api_key):
+    return {"job_id": job_id, "blackboard": database.get_blackboard(job_id)}
+
+
+@app.get("/api/blackboard/{job_id}/{key}")
+async def get_blackboard_value(job_id: str, key: str, _: None = require_api_key):
+    entry = database.get_blackboard_value(job_id, key)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Key not found")
+    return entry
+
+
+@app.put("/api/blackboard/{job_id}/{key}")
+async def set_blackboard_value(job_id: str, key: str, request: dict, _: None = require_api_key):
+    value = request.get("value")
+    updated_by = request.get("updated_by")
+    database.set_blackboard_value(job_id, key, value, updated_by=updated_by)
+    return database.get_blackboard_value(job_id, key)
+
+
+@app.delete("/api/blackboard/{job_id}/{key}")
+async def delete_blackboard_key(job_id: str, key: str, _: None = require_api_key):
+    if not database.delete_blackboard_key(job_id, key):
+        raise HTTPException(status_code=404, detail="Key not found")
+    return {"ok": True}
 
 
 # --- Legacy Job Endpoints (backward compatibility) ---

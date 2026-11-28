@@ -18,6 +18,7 @@ Users can import these to build custom tool overrides that reuse base functional
 from __future__ import annotations
 
 from datetime import datetime
+import contextvars
 import json
 import logging
 from typing import Any, Callable
@@ -39,10 +40,59 @@ __all__ = [
     "ArtifactStorageTool",
     # System tool factory
     "create_system_tools",
+    # Blackboard execution context (per async task / agent run)
+    "set_blackboard_context",
+    "reset_blackboard_context",
+    "get_blackboard_context",
 ]
 
 # Global registry for tool overrides
 _TOOL_OVERRIDES: dict[str, Callable] = {}
+
+# Per-task blackboard execution context.
+#
+# Why this exists:
+#   `AgentRunner` may reuse a shared `ToolRegistry` across agents (notably when
+#   running multiple agents in parallel for a Blackboard Run). In that case the
+#   blackboard tool objects can end up bound to whichever agent was created
+#   last, so resolving job_id/agent from the bound tool is racy and can produce
+#   "No active job/database context".
+#
+#   A ContextVar is copied per asyncio Task, so each concurrently running agent
+#   can bind its own database/job/name and every tool call resolves correctly.
+_BLACKBOARD_CONTEXT: "contextvars.ContextVar[dict | None]" = contextvars.ContextVar(
+    "laddr_blackboard_context", default=None
+)
+
+
+def set_blackboard_context(
+    database: Any = None,
+    job_id: str | None = None,
+    agent_name: str | None = None,
+):
+    """Bind blackboard context to the current async task.
+
+    Returns a token that can be passed to :func:`reset_blackboard_context`.
+    """
+    return _BLACKBOARD_CONTEXT.set(
+        {"database": database, "job_id": job_id, "agent_name": agent_name}
+    )
+
+
+def reset_blackboard_context(token: Any = None) -> None:
+    """Restore the previous blackboard context (best effort)."""
+    try:
+        if token is not None:
+            _BLACKBOARD_CONTEXT.reset(token)
+        else:
+            _BLACKBOARD_CONTEXT.set(None)
+    except Exception:
+        pass
+
+
+def get_blackboard_context() -> dict | None:
+    """Return the blackboard context bound to the current async task."""
+    return _BLACKBOARD_CONTEXT.get()
 
 
 def override_system_tool(tool_name: str):
@@ -789,7 +839,58 @@ class ParallelDelegationTool:
         }
 
 
-def create_system_tools(message_bus, storage_backend=None, agent=None) -> dict[str, tuple[Any, list[str]]]:
+class BlackboardTool:
+    """Shared key-value blackboard for inter-agent collaboration within a job."""
+
+    def __init__(self, database=None, agent=None):
+        self.database = database
+        self.agent = agent
+
+    def _ctx(self, _agent=None):
+        # Prefer the per-task execution context. This is what makes parallel
+        # agents safe even when they share one ToolRegistry instance.
+        ctx = _BLACKBOARD_CONTEXT.get()
+        if ctx:
+            ctx_db = ctx.get("database")
+            ctx_job_id = ctx.get("job_id")
+            if ctx_db is not None and ctx_job_id:
+                return ctx_db, ctx_job_id, ctx.get("agent_name")
+
+        # Fallback for direct tool usage outside an agent run.
+        agent = _agent or self.agent
+        db = self.database or (getattr(agent, "database", None) if agent else None)
+        job_id = getattr(agent, "current_job_id", None) if agent else None
+        agent_name = None
+        if agent is not None and getattr(agent, "config", None) is not None:
+            agent_name = getattr(agent.config, "name", None)
+        return db, job_id, agent_name
+
+    async def read_blackboard(self, key: str = "", _agent=None) -> dict:
+        db, job_id, _ = self._ctx(_agent)
+        if not db or not job_id:
+            return {"error": "No active job/database context"}
+        if key:
+            entry = db.get_blackboard_value(job_id, key)
+            if entry is None:
+                return {"key": key, "value": None, "found": False}
+            return {"key": key, "value": entry["value"], "updated_by": entry["updated_by"], "found": True}
+        return {"blackboard": db.get_blackboard(job_id)}
+
+    async def write_blackboard(self, key: str, value=None, _agent=None) -> dict:
+        db, job_id, agent_name = self._ctx(_agent)
+        if not db or not job_id:
+            return {"error": "No active job/database context"}
+        db.set_blackboard_value(job_id, key, value, updated_by=agent_name)
+        return {"ok": True, "key": key, "updated_by": agent_name}
+
+    async def list_blackboard(self, _agent=None) -> dict:
+        db, job_id, _ = self._ctx(_agent)
+        if not db or not job_id:
+            return {"error": "No active job/database context"}
+        return {"blackboard": db.get_blackboard(job_id)}
+
+
+def create_system_tools(message_bus, storage_backend=None, agent=None, database=None) -> dict[str, tuple[Any, list[str]]]:
     """
     Create system tools for task delegation and artifact management.
     
@@ -922,5 +1023,13 @@ def create_system_tools(message_bus, storage_backend=None, agent=None) -> dict[s
             logger.info(f"✅ Registering NEW system tool: {tool_name}")
             # Wrap with runtime injection
             tools[tool_name] = (wrap_with_runtime_injection(tool_func), [])
+
+    # Blackboard (shared state) tools
+    db_for_bb = database or (getattr(agent, "database", None) if agent else None)
+    if db_for_bb is not None:
+        bb_tool = BlackboardTool(database=db_for_bb, agent=agent)
+        tools["system_read_blackboard"] = (bb_tool.read_blackboard, ["read_blackboard"])
+        tools["system_write_blackboard"] = (bb_tool.write_blackboard, ["write_blackboard"])
+        tools["system_list_blackboard"] = (bb_tool.list_blackboard, ["list_blackboard"])
 
     return tools

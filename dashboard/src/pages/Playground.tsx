@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from 'date-fns';
 import {
   Play,
@@ -17,6 +17,7 @@ import {
   
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import BlackboardRunView from "../components/BlackboardRunView";
 import { useAgents } from "../lib/queries/agents";
 import {
   useRunPlayground,
@@ -65,6 +66,63 @@ const formatFinalOutput = (value: any): string => {
     return value;
   }
 };
+
+function flattenSpans(list: Span[], out: Span[] = []): Span[] {
+  for (const span of list || []) {
+    out.push(span);
+    if (span.children && span.children.length) flattenSpans(span.children, out);
+  }
+  return out;
+}
+
+/** Pull the best available answer out of the recorded trace spans. */
+function bestAnswerFromSpans(spans: Span[]): any | null {
+  const flat = flattenSpans(spans);
+  const finishes: any[] = [];
+  for (const span of flat) {
+    if (span.event_type !== "autonomous_think") continue;
+    const raw = (span.metadata as any)?.response;
+    let parsed: any = raw;
+    if (typeof raw === "string") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+    }
+    if (parsed && typeof parsed === "object" && parsed.type === "finish" && parsed.answer != null) {
+      finishes.push(parsed.answer);
+    }
+  }
+  if (finishes.length) return finishes[finishes.length - 1];
+
+  const completes = flat.filter(
+    (span) => span.event_type === "task_complete" && span.output != null
+  );
+  if (completes.length) return completes[completes.length - 1].output;
+  return null;
+}
+
+/** Split a stored result into an answer and an optional error message. */
+function normalizeOutcome(value: any): { answer: any; error: string | null } {
+  let answer: any = value;
+  let error: string | null = null;
+
+  if (answer && typeof answer === "object" && !Array.isArray(answer)) {
+    const keys = Object.keys(answer);
+    if (answer.error != null) error = String(answer.error);
+    if ("result" in answer) answer = answer.result;
+    else if ("answer" in answer) answer = answer.answer;
+    else if (error != null && keys.every((k) => k === "error")) answer = null;
+  }
+
+  if (answer && typeof answer === "object" && !Array.isArray(answer) && Object.keys(answer).length === 0) {
+    answer = null;
+  }
+  if (typeof answer === "string" && answer.trim() === "") answer = null;
+
+  return { answer, error };
+}
 
 function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
   const hasChildren = span.children && span.children.length > 0;
@@ -348,7 +406,7 @@ export default function Playground() {
 
   // Form state
   const [promptText, setPromptText] = useState("");
-  const [mode, setMode] = useState<"single" | "sequential">("single");
+  const [mode, setMode] = useState<"single" | "sequential" | "blackboard">("single");
   const [selectedAgent, setSelectedAgent] = useState("");
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
 
@@ -357,8 +415,16 @@ export default function Playground() {
     null
   );
   const [showTraces, setShowTraces] = useState(false);
-  const { traces, isConnected, isComplete, error, finalOutput, reportId, liveOutput, liveAgent } =
+  const traceScrollRef = useRef<HTMLDivElement | null>(null);
+  const { traces, isConnected, isComplete, error, finalOutput, reportId, runError, liveOutput, liveAgent, liveOutputsByAgent, status: runStatus } =
     usePlaygroundTraces(activePlaygroundId);
+
+  // When a run finishes, bring the final output into view.
+  useEffect(() => {
+    if (isComplete && showTraces) {
+      traceScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [isComplete, showTraces]);
 
   // Set default agent when agents load
   useState(() => {
@@ -390,6 +456,13 @@ export default function Playground() {
               prompt_name: selectedAgents[0] || "coordinator",
               inputs: payload,
               mode: "sequential",
+              agents: selectedAgents,
+            }
+          : mode === "blackboard"
+          ? {
+              prompt_name: selectedAgents[0] || "coordinator",
+              inputs: payload,
+              mode: "blackboard",
               agents: selectedAgents,
             }
           : {
@@ -442,6 +515,24 @@ export default function Playground() {
     }
     return [];
   })();
+
+  // Final outcome for every run mode. Prefer the stored result, then fall
+  // back to the last finish answer recorded in the trace spans.
+  const outcome = useMemo(() => {
+    const normalized = normalizeOutcome(finalOutput);
+    const answer = normalized.answer ?? bestAnswerFromSpans(spans);
+    return { answer, error: normalized.error };
+  }, [finalOutput, spans]);
+
+  const runFailed = ["error", "failed", "canceled"].includes(
+    (runStatus || "").toLowerCase()
+  );
+  const errorMessage =
+    outcome.error ||
+    runError ||
+    (isComplete && runFailed
+      ? `Run ${runStatus || "failed"} without a final answer.`
+      : null);
 
   // Recursively calculate total tokens from all spans
   const calculateTotalTokens = (spanList: Span[]): number => {
@@ -822,7 +913,7 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                 disabled={
                   runPlayground.isPending ||
                   !promptText.trim() ||
-                  (mode === "sequential" && selectedAgents.length < 2)
+                  ((mode === "sequential" || mode === "blackboard") && selectedAgents.length < 2)
                 }
                 className="flex items-center gap-2 px-6 py-2.5 bg-[#1FB8CD] hover:bg-[#1AA5B8] text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
@@ -871,13 +962,28 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                   </div>
                 </div>
               </label>
+              <label className="flex items-center gap-3 p-3 bg-[#1F2121] border border-gray-800 rounded-lg cursor-pointer hover:border-[#1FB8CD] transition-colors">
+                <input
+                  type="radio"
+                  name="mode"
+                  checked={mode === "blackboard"}
+                  onChange={() => setMode("blackboard")}
+                  className="w-4 h-4 text-[#1FB8CD] focus:ring-[#1FB8CD] focus:ring-offset-0"
+                />
+                <div className="flex-1">
+                  <div className="text-white font-medium">Blackboard Run</div>
+                  <div className="text-xs text-gray-400">
+                    Agents collaborate via shared state (parallel)
+                  </div>
+                </div>
+              </label>
             </div>
           </div>
 
           {/* Agent Selection */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
             <label className="block text-sm font-medium text-gray-300 mb-3">
-              {mode === "single" ? "Select Agent" : "Select Agents (in order)"}
+              {mode === "single" ? "Select Agent" : mode === "blackboard" ? "Select Agents (collaborators)" : "Select Agents (in order)"}
             </label>
 
             {mode === "single" ? (
@@ -915,9 +1021,12 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                 {agents &&
                   agents.map((agent) => {
                     const isSelected = selectedAgents.includes(agent.name);
-                    const order = isSelected
-                      ? selectedAgents.indexOf(agent.name) + 1
-                      : null;
+                    // Blackboard runs are parallel, so a numbered execution
+                    // order would be misleading.
+                    const order =
+                      isSelected && mode !== "blackboard"
+                        ? selectedAgents.indexOf(agent.name) + 1
+                        : null;
 
                     return (
                       <label
@@ -950,7 +1059,7 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                       </label>
                     );
                   })}
-                {selectedAgents.length > 0 && (
+                {selectedAgents.length > 0 && mode !== "blackboard" && (
                   <div className="mt-3 p-3 bg-[#1F2121] border border-gray-800 rounded-lg">
                     <div className="text-xs text-gray-400 mb-1">
                       Execution order:
@@ -969,8 +1078,8 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
       {/* Live Trace Section */}
       {/* Live Trace Panel - Bottom */}
       {showTraces && activePlaygroundId && (
-        <div className="flex-none border-t-2 border-t-[#1FB8CD] bg-[#0D0E0E] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)] transition-all duration-300 ease-in-out">
-          <div className="px-6 py-3 border-b border-gray-800 flex items-center justify-between bg-[#0D0E0E]">
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#0D0E0E]">
+          <div className="flex-none px-6 py-3 border-b border-gray-800 flex items-center justify-between bg-[#0D0E0E]">
             <div className="flex items-center gap-3">
               <h2 className="text-sm font-semibold text-white">Live Trace</h2>
               {isConnected && !isComplete && (
@@ -1033,22 +1142,8 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
             </div>
           </div>
 
-          <div className="h-96 overflow-y-auto bg-[#191A1A]">
-            {liveOutput && !isComplete && (
-              <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
-                  <h3 className="text-sm font-semibold text-cyan-300">
-                    Live output{liveAgent ? ` · ${liveAgent}` : ''}
-                  </h3>
-                </div>
-                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-gray-200">
-                  {liveOutput}
-                  <span className="inline-block w-2 h-4 bg-cyan-400 ml-0.5 animate-pulse align-middle" />
-                </pre>
-              </section>
-            )}
-
+          <div ref={traceScrollRef} className="flex-1 overflow-y-auto bg-[#191A1A]">
+            {/* Final outcome is shown for every mode, including Blackboard. */}
             {isComplete && reportId && (
               <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -1069,11 +1164,60 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
               </section>
             )}
 
-            {isComplete && finalOutput !== null && finalOutput !== undefined && (
+            {isComplete && errorMessage && (
+              <section className="m-4 rounded-lg border border-red-900/60 bg-red-950/20 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-red-300">Run Error</h3>
+                  {runStatus && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-300">
+                      {runStatus}
+                    </span>
+                  )}
+                </div>
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-red-200">
+                  {errorMessage}
+                </pre>
+              </section>
+            )}
+
+            {isComplete && outcome.answer != null && (
               <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
-                <h3 className="mb-2 text-sm font-semibold text-cyan-300">Final Output</h3>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-cyan-300">Final Output</h3>
+                  {runStatus && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300">
+                      {runStatus}
+                    </span>
+                  )}
+                </div>
                 <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-gray-200">
-                  {formatFinalOutput(finalOutput)}
+                  {formatFinalOutput(outcome.answer)}
+                </pre>
+              </section>
+            )}
+
+            {mode === "blackboard" ? (
+              <BlackboardRunView
+                agents={selectedAgents.length ? selectedAgents : [selectedAgent].filter(Boolean)}
+                promptId={activePlaygroundId}
+                liveAgent={liveAgent}
+                liveOutputsByAgent={liveOutputsByAgent}
+                isComplete={isComplete}
+                spans={spans}
+              />
+            ) : (
+              <>
+            {liveOutput && !isComplete && (
+              <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
+                  <h3 className="text-sm font-semibold text-cyan-300">
+                    Live output{liveAgent ? ` · ${liveAgent}` : ''}
+                  </h3>
+                </div>
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-gray-200">
+                  {liveOutput}
+                  <span className="inline-block w-2 h-4 bg-cyan-400 ml-0.5 animate-pulse align-middle" />
                 </pre>
               </section>
             )}
@@ -1095,7 +1239,7 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                 <div className="text-center">
                   <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
                   <p className="text-sm">
-                    {finalOutput == null
+                    {outcome.answer == null
                       ? "Run completed without trace spans or a final output."
                       : "No trace spans were recorded for this run."}
                   </p>
@@ -1117,6 +1261,8 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                   <p className="text-xs text-gray-600 mt-2">WebSocket connected, waiting for trace data...</p>
                 </div>
               </div>
+            )}
+              </>
             )}
           </div>
         </div>
