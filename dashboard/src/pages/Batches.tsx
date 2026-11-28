@@ -2,41 +2,42 @@ import { useBatches } from '../lib/queries/batches';
 import { Clock, CheckCircle, XCircle, Loader2, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
+import { PageHeader, Card, CardSkeleton, EmptyState, Badge } from '../components/ui';
 
 export default function Batches() {
   const { data: batches, isLoading } = useBatches(50);
   const navigate = useNavigate();
 
-  const getStatusIcon = (status: string) => {
+  const statusTone = (status: string) => {
     switch (status) {
       case 'completed':
-        return <CheckCircle className="w-5 h-5 text-green-400" />;
+        return 'success' as const;
       case 'failed':
-        return <XCircle className="w-5 h-5 text-red-400" />;
+        return 'danger' as const;
       case 'running':
       case 'submitted':
-        return <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />;
+        return 'primary' as const;
       default:
-        return <Clock className="w-5 h-5 text-gray-400" />;
+        return 'neutral' as const;
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const statusIcon = (status: string) => {
     switch (status) {
       case 'completed':
-        return 'text-green-400 bg-green-400/10';
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case 'failed':
-        return 'text-red-400 bg-red-400/10';
+        return <XCircle className="h-4 w-4 text-danger" />;
       case 'running':
       case 'submitted':
-        return 'text-blue-400 bg-blue-400/10';
+        return <Loader2 className="h-4 w-4 text-primary-400 animate-spin" />;
       default:
-        return 'text-gray-400 bg-gray-400/10';
+        return <Clock className="h-4 w-4 text-ink-subtle" />;
     }
   };
 
   const calculateDuration = (createdAt?: string, completedAt?: string) => {
-    if (!createdAt) return '-';
+    if (!createdAt) return '—';
     const start = new Date(createdAt).getTime();
     const end = completedAt ? new Date(completedAt).getTime() : Date.now();
     const ms = Math.max(0, end - start);
@@ -45,122 +46,97 @@ export default function Batches() {
     return `${(ms / 60000).toFixed(1)}m`;
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-gray-400">Loading batches...</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6 bg-[#191A1A] p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Batches</h1>
-          <p className="text-sm text-gray-400 mt-1">
-            View and manage batch operations
-          </p>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Batches"
+        description="View and manage batch operations."
+      />
 
-      <div className="bg-[#1F2121] rounded-lg border border-gray-800 overflow-hidden">
-        {!batches || batches.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            <Clock className="w-12 h-12 mx-auto mb-4 text-gray-600" />
-            <p>No batches found</p>
-          </div>
-        ) : (
-          <table className="w-full">
-            <thead className="bg-[#191A1A]">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Batch ID
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Agent
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Tasks
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Jobs
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Created
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Duration
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {batches.map((batch) => {
-                const duration = calculateDuration(
-                  batch.created_at,
-                  batch.completed_at
-                );
-                return (
+      {isLoading && (
+        <Card className="p-5">
+          <CardSkeleton rows={6} />
+        </Card>
+      )}
+
+      {!isLoading && (!batches || batches.length === 0) && (
+        <EmptyState
+          icon={<Clock className="h-5 w-5" />}
+          title="No batches yet"
+          description="Batch runs will appear here once they are submitted."
+        />
+      )}
+
+      {!isLoading && batches && batches.length > 0 && (
+        <div className="surface overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="data-table min-w-[880px]">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Batch ID</th>
+                  <th>Agent</th>
+                  <th className="text-right">Tasks</th>
+                  <th className="text-right">Jobs</th>
+                  <th>Created</th>
+                  <th>Duration</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((batch) => (
                   <tr
                     key={batch.batch_id}
-                    className="hover:bg-[#252525] transition-colors"
+                    onClick={() => navigate(`/batches/${batch.batch_id}`)}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        navigate(`/batches/${batch.batch_id}`);
+                      }
+                    }}
+                    className="cursor-pointer focus-visible:ring-2 focus-visible:ring-primary-400/50 focus-visible:outline-none"
                   >
-                    <td className="px-6 py-4">
+                    <td>
                       <div className="flex items-center gap-2">
-                        {getStatusIcon(batch.status)}
-                        <span
-                          className={`text-xs px-2 py-1 rounded font-medium ${getStatusColor(
-                            batch.status
-                          )}`}
-                        >
+                        {statusIcon(batch.status)}
+                        <Badge tone={statusTone(batch.status)} dot className="capitalize">
                           {batch.status}
-                        </span>
+                        </Badge>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <code className="text-sm text-gray-300 font-mono">
-                        {batch.batch_id.slice(0, 8)}
-                      </code>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-white font-medium">
-                        {batch.agent_name}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-gray-300">
-                      {batch.task_count}
-                    </td>
-                    <td className="px-6 py-4 text-gray-300">
-                      {batch.job_ids?.length || 0}
-                    </td>
-                    <td className="px-6 py-4 text-gray-400">
+                    <td className="font-mono text-sm text-ink">{batch.batch_id.slice(0, 8)}…</td>
+                    <td className="font-medium text-ink">{batch.agent_name}</td>
+                    <td className="text-right tabular-nums text-ink-muted">{batch.task_count}</td>
+                    <td className="text-right tabular-nums text-ink-muted">{batch.job_ids?.length || 0}</td>
+                    <td className="whitespace-nowrap text-ink-subtle">
                       {batch.created_at
                         ? format(new Date(batch.created_at), 'MMM d, HH:mm:ss')
-                        : '-'}
+                        : '—'}
                     </td>
-                    <td className="px-6 py-4 text-gray-400">{duration}</td>
-                    <td className="px-6 py-4">
+                    <td className="tabular-nums text-ink-subtle">
+                      {calculateDuration(batch.created_at, batch.completed_at)}
+                    </td>
+                    <td className="text-right">
                       <button
-                        onClick={() => navigate(`/batches/${batch.batch_id}`)}
-                        className="flex items-center gap-1 text-sm text-[#1FB8CD] hover:text-cyan-300 transition-colors"
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/batches/${batch.batch_id}`);
+                        }}
+                        className="btn-ghost h-8 px-2 text-primary-400 hover:text-primary-300"
                       >
-                        View Traces
-                        <ChevronRight className="w-4 h-4" />
+                        View
+                        <ChevronRight className="h-3.5 w-3.5" />
                       </button>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

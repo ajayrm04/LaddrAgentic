@@ -20,67 +20,67 @@ export default function PlaygroundHistory() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed':
-        return <CheckCircle className="w-5 h-5 text-green-400" />;
+        return <CheckCircle className="w-5 h-5 text-success" />;
       case 'error':
       case 'failed':
-        return <XCircle className="w-5 h-5 text-red-400" />;
+        return <XCircle className="w-5 h-5 text-danger" />;
       case 'running':
-        return <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />;
+        return <Loader2 className="w-5 h-5 text-info animate-spin" />;
       case 'canceled':
-        return <XCircle className="w-5 h-5 text-gray-400" />;
+        return <XCircle className="w-5 h-5 text-ink-subtle" />;
       default:
-        return <Clock className="w-5 h-5 text-gray-400" />;
+        return <Clock className="w-5 h-5 text-ink-subtle" />;
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
-        return 'text-green-400 bg-green-400/10';
+        return 'text-success bg-success/10';
       case 'error':
       case 'failed':
-        return 'text-red-400 bg-red-400/10';
+        return 'text-danger bg-danger/10';
       case 'running':
-        return 'text-blue-400 bg-blue-400/10';
+        return 'text-info bg-info/10';
       case 'canceled':
-        return 'text-gray-400 bg-gray-400/10';
+        return 'text-ink-subtle bg-surface-overlay/10';
       default:
-        return 'text-gray-400 bg-gray-400/10';
+        return 'text-ink-subtle bg-surface-overlay/10';
     }
   };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-gray-400">Loading playground history...</p>
+        <p className="text-ink-subtle">Loading playground history...</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 bg-[#191A1A] p-6">
+    <div className="space-y-6 bg-surface p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Playground History</h1>
-          <p className="text-sm text-gray-400 mt-1">View past playground executions</p>
+          <h1 className="page-title">Playground History</h1>
+          <p className="text-sm text-ink-subtle mt-1">View past playground executions</p>
         </div>
         <Link
           to="/playground"
-          className="flex items-center gap-2 px-4 py-2 bg-[#1FB8CD] hover:bg-[#1AA5B8] text-white rounded-lg transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-primary-500 hover:bg-primary-600 text-ink rounded-lg transition-colors"
         >
           <Play className="w-4 h-4" />
           New Run
         </Link>
       </div>
 
-      <div className="bg-[#1F2121] rounded-lg border border-gray-800 overflow-hidden">
+      <div className="bg-surface-raised rounded-lg border border-line overflow-hidden">
         {!playgrounds || playgrounds.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            <Clock className="w-12 h-12 mx-auto mb-4 text-gray-600" />
+          <div className="text-center py-12 text-ink-subtle">
+            <Clock className="w-12 h-12 mx-auto mb-4 text-ink-faint" />
             <p>No playground runs found</p>
             <Link
               to="/playground"
-              className="inline-flex items-center gap-2 mt-4 text-[#1FB8CD] hover:text-[#1AA5B8]"
+              className="inline-flex items-center gap-2 mt-4 text-primary-400 hover:text-primary-400"
             >
               <Play className="w-4 h-4" />
               Start your first run
@@ -88,29 +88,29 @@ export default function PlaygroundHistory() {
           </div>
         ) : (
           <table className="w-full">
-            <thead className="bg-[#191A1A]">
+            <thead className="bg-surface">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-ink-subtle uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-ink-subtle uppercase tracking-wider">
                   ID
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-ink-subtle uppercase tracking-wider">
                   Agent/Mode
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-ink-subtle uppercase tracking-wider">
                   Tokens
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-ink-subtle uppercase tracking-wider">
                   Created
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-ink-subtle uppercase tracking-wider">
                   Duration
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800">
+            <tbody className="divide-y divide-line">
               {playgrounds.map((playground) => {
                 const duration = playground.completed_at && playground.created_at
                   ? Math.round(
@@ -124,16 +124,16 @@ export default function PlaygroundHistory() {
                 return (
                   <Fragment key={playground.prompt_id}>
                     <tr
-                      className="hover:bg-[#252525] transition-colors cursor-pointer"
+                      className="hover:bg-surface-overlay transition-colors cursor-pointer"
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <button
                             onClick={(e) => { e.stopPropagation(); toggleRow(playground.prompt_id); }}
-                            className="p-1 rounded hover:bg-gray-800/20"
+                            className="p-1 rounded hover:bg-surface-overlay/20"
                             aria-label={isExpanded ? 'Collapse' : 'Expand'}
                           >
-                            {isExpanded ? <ChevronDown className="w-4 h-4 text-gray-300" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
+                            {isExpanded ? <ChevronDown className="w-4 h-4 text-ink-muted" /> : <ChevronRight className="w-4 h-4 text-ink-faint" />}
                           </button>
                           {getStatusIcon(playground.status)}
                           <span className={`text-xs px-2 py-1 rounded font-medium ${getStatusColor(playground.status)}`}>
@@ -142,28 +142,28 @@ export default function PlaygroundHistory() {
                         </div>
                       </td>
                       <td className="px-6 py-4" onClick={() => navigate(`/playground-history/${playground.prompt_id}`)}>
-                        <code className="text-sm text-gray-300 font-mono">{playground.prompt_id.slice(0, 8)}</code>
+                        <code className="text-sm text-ink-muted font-mono">{playground.prompt_id.slice(0, 8)}</code>
                       </td>
                       <td className="px-6 py-4" onClick={() => navigate(`/playground-history/${playground.prompt_id}`)}>
-                        <div className="text-white font-medium">{playground.prompt_name}</div>
+                        <div className="text-ink font-medium">{playground.prompt_name}</div>
                       </td>
                       <td className="px-6 py-4" onClick={() => navigate(`/playground-history/${playground.prompt_id}`)}>
                         {playground.token_usage?.total_tokens ? (
-                          <span className="text-gray-300">{playground.token_usage.total_tokens.toLocaleString()}</span>
+                          <span className="text-ink-muted">{playground.token_usage.total_tokens.toLocaleString()}</span>
                         ) : (
-                          <span className="text-gray-500">-</span>
+                          <span className="text-ink-faint">-</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-gray-400" onClick={() => navigate(`/playground-history/${playground.prompt_id}`)}>
+                      <td className="px-6 py-4 text-ink-subtle" onClick={() => navigate(`/playground-history/${playground.prompt_id}`)}>
                         {playground.created_at ? format(new Date(playground.created_at), 'MMM d, HH:mm:ss') : '-'}
                       </td>
-                      <td className="px-6 py-4 text-gray-400" onClick={() => navigate(`/playground-history/${playground.prompt_id}`)}>
+                      <td className="px-6 py-4 text-ink-subtle" onClick={() => navigate(`/playground-history/${playground.prompt_id}`)}>
                         {duration !== null ? `${duration}s` : '-'}
                       </td>
                     </tr>
 
                     {isExpanded && (
-                      <tr className="bg-[#121212]">
+                      <tr className="bg-canvas">
                         <td colSpan={6} className="px-6 py-4">
                           <ExpandedDetails playground={playground} />
                         </td>
@@ -200,8 +200,8 @@ function ExpandedDetails({ playground }: { playground: any }) {
       </div>
 
       <div>
-        <div className="text-xs text-gray-400">Token Usage</div>
-        <div className="mt-2 text-xs text-gray-300 bg-[#0D0E0E] p-3 rounded">
+        <div className="text-xs text-ink-subtle">Token Usage</div>
+        <div className="mt-2 text-xs text-ink-muted bg-canvas p-3 rounded">
           <div>Total: <span className="font-semibold">{playground.token_usage?.total_tokens ?? 0}</span></div>
           <div>Prompt: {playground.token_usage?.prompt_tokens ?? 0}</div>
           <div>Completion: {playground.token_usage?.completion_tokens ?? 0}</div>
@@ -209,11 +209,11 @@ function ExpandedDetails({ playground }: { playground: any }) {
       </div>
 
       <div>
-        <div className="text-xs text-gray-400 mb-2">Traces</div>
+        <div className="text-xs text-ink-subtle mb-2">Traces</div>
         {spans.length === 0 ? (
-          <div className="text-xs text-gray-500">No trace spans available for this run.</div>
+          <div className="text-xs text-ink-faint">No trace spans available for this run.</div>
         ) : (
-          <div className="bg-[#0D0E0E] rounded p-2 space-y-2 max-h-72 overflow-auto">
+          <div className="bg-canvas rounded p-2 space-y-2 max-h-72 overflow-auto">
             {spans.map((s: any, i: number) => (
               <SpanNode key={`${s.id}-${i}`} span={s} depth={0} />
             ))}
@@ -245,8 +245,8 @@ function PrettyValue({ value, label }: { value: any; label: string }) {
   if (isStr) {
     return (
       <div className="mb-2">
-        <div className="text-xs text-gray-400 mb-1">{label}</div>
-        <div className="text-xs text-gray-200 bg-[#0D0E0E] p-3 rounded border border-gray-800 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+        <div className="text-xs text-ink-subtle mb-1">{label}</div>
+        <div className="text-xs text-ink bg-canvas p-3 rounded border border-line whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
           {value}
         </div>
       </div>
@@ -258,13 +258,13 @@ function PrettyValue({ value, label }: { value: any; label: string }) {
     if (obj.type === 'tool' && obj.tool) {
       return (
         <div className="mb-2">
-          <div className="text-xs text-gray-400 mb-1">{label}</div>
-          <div className="text-xs bg-[#0D0E0E] p-3 rounded border border-gray-800 space-y-1">
-            <div><span className="text-purple-400 font-semibold">Tool call:</span> <span className="text-white">{obj.tool}</span></div>
+          <div className="text-xs text-ink-subtle mb-1">{label}</div>
+          <div className="text-xs bg-canvas p-3 rounded border border-line space-y-1">
+            <div><span className="text-warning font-semibold">Tool call:</span> <span className="text-ink">{obj.tool}</span></div>
             {obj.params && Object.keys(obj.params).length > 0 && (
               <div>
-                <div className="text-gray-500 mt-1">Params:</div>
-                <pre className="text-gray-200 whitespace-pre-wrap mt-1">{JSON.stringify(obj.params, null, 2)}</pre>
+                <div className="text-ink-faint mt-1">Params:</div>
+                <pre className="text-ink whitespace-pre-wrap mt-1">{JSON.stringify(obj.params, null, 2)}</pre>
               </div>
             )}
           </div>
@@ -274,8 +274,8 @@ function PrettyValue({ value, label }: { value: any; label: string }) {
     if (obj.type === 'finish' && obj.answer) {
       return (
         <div className="mb-2">
-          <div className="text-xs text-gray-400 mb-1">{label}</div>
-          <div className="text-xs text-gray-200 bg-[#0D0E0E] p-3 rounded border border-gray-800 whitespace-pre-wrap break-words max-h-96 overflow-y-auto">
+          <div className="text-xs text-ink-subtle mb-1">{label}</div>
+          <div className="text-xs text-ink bg-canvas p-3 rounded border border-line whitespace-pre-wrap break-words max-h-96 overflow-y-auto">
             {obj.answer}
           </div>
         </div>
@@ -284,16 +284,16 @@ function PrettyValue({ value, label }: { value: any; label: string }) {
     // generic object
     return (
       <div className="mb-2">
-        <div className="text-xs text-gray-400 mb-1">{label}</div>
-        <pre className="text-xs text-gray-200 bg-[#0D0E0E] p-3 rounded border border-gray-800 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">{JSON.stringify(obj, null, 2)}</pre>
+        <div className="text-xs text-ink-subtle mb-1">{label}</div>
+        <pre className="text-xs text-ink bg-canvas p-3 rounded border border-line whitespace-pre-wrap break-words max-h-64 overflow-y-auto">{JSON.stringify(obj, null, 2)}</pre>
       </div>
     );
   }
 
   return (
     <div className="mb-2">
-      <div className="text-xs text-gray-400 mb-1">{label}</div>
-      <div className="text-xs text-gray-200 bg-[#0D0E0E] p-3 rounded border border-gray-800 whitespace-pre-wrap break-words">
+      <div className="text-xs text-ink-subtle mb-1">{label}</div>
+      <div className="text-xs text-ink bg-canvas p-3 rounded border border-line whitespace-pre-wrap break-words">
         {String(value)}
       </div>
     </div>
@@ -319,14 +319,14 @@ function MetadataView({ metadata }: { metadata: any }) {
 
   return (
     <div className="mb-2">
-      <div className="text-xs text-gray-400 mb-1">Metadata</div>
-      <div className="bg-[#0D0E0E] p-3 rounded border border-gray-800 space-y-2">
+      <div className="text-xs text-ink-subtle mb-1">Metadata</div>
+      <div className="bg-canvas p-3 rounded border border-line space-y-2">
         {scalars.length > 0 && (
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             {scalars.map(([k, v]) => (
               <div key={k} className="text-xs">
-                <span className="text-gray-500">{k.replace(/_/g, ' ')}:</span>{' '}
-                <span className={k === 'status' ? (v === 'success' ? 'text-green-400' : 'text-yellow-400') : 'text-gray-200'}>
+                <span className="text-ink-faint">{k.replace(/_/g, ' ')}:</span>{' '}
+                <span className={k === 'status' ? (v === 'success' ? 'text-success' : 'text-warning') : 'text-ink'}>
                   {typeof v === 'number' ? v.toLocaleString() : String(v)}
                 </span>
               </div>
@@ -335,18 +335,18 @@ function MetadataView({ metadata }: { metadata: any }) {
         )}
         {nested.map(([k, v]) => (
           <div key={k}>
-            <div className="text-gray-500 text-xs mb-1">{k.replace(/_/g, ' ')}:</div>
-            <pre className="text-gray-200 whitespace-pre-wrap text-xs max-h-40 overflow-y-auto">{typeof v === 'string' ? v : JSON.stringify(v, null, 2)}</pre>
+            <div className="text-ink-faint text-xs mb-1">{k.replace(/_/g, ' ')}:</div>
+            <pre className="text-ink whitespace-pre-wrap text-xs max-h-40 overflow-y-auto">{typeof v === 'string' ? v : JSON.stringify(v, null, 2)}</pre>
           </div>
         ))}
         <button
           onClick={() => setShowRaw(!showRaw)}
-          className="text-[10px] text-gray-500 hover:text-gray-300 underline"
+          className="text-[10px] text-ink-faint hover:text-ink-muted underline"
         >
           {showRaw ? 'Hide raw metadata' : 'Show raw metadata'}
         </button>
         {showRaw && (
-          <pre className="text-[10px] text-gray-500 whitespace-pre-wrap max-h-40 overflow-y-auto mt-1">{JSON.stringify(metadata, null, 2)}</pre>
+          <pre className="text-[10px] text-ink-faint whitespace-pre-wrap max-h-40 overflow-y-auto mt-1">{JSON.stringify(metadata, null, 2)}</pre>
         )}
       </div>
     </div>
@@ -363,24 +363,24 @@ function SpanNode({ span, depth }: { span: any; depth: number }) {
   return (
     <div>
       <div
-        className="flex items-center gap-3 py-2 px-3 hover:bg-gray-900/10 rounded cursor-pointer"
+        className="flex items-center gap-3 py-2 px-3 hover:bg-canvas/10 rounded cursor-pointer"
         style={{ paddingLeft: `${depth * 16}px` }}
         onClick={() => setOpen(!open)}
       >
         <div className="w-4">
-          {hasChildren ? (open ? <ChevronDown className="w-4 h-4 text-gray-300" /> : <ChevronRight className="w-4 h-4 text-gray-500" />) : <div className="w-4" />}
+          {hasChildren ? (open ? <ChevronDown className="w-4 h-4 text-ink-muted" /> : <ChevronRight className="w-4 h-4 text-ink-faint" />) : <div className="w-4" />}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm text-white truncate">{span.name || span.event_type}</div>
-          <div className="text-xs text-gray-400">{span.agent || ''} — {span.event_type}</div>
+          <div className="text-sm text-ink truncate">{span.name || span.event_type}</div>
+          <div className="text-xs text-ink-subtle">{span.agent || ''} — {span.event_type}</div>
         </div>
-        <div className="text-xs text-gray-400">
+        <div className="text-xs text-ink-subtle">
           {span.metadata?.tokens ? `${span.metadata.tokens} tokens` : ''}
         </div>
       </div>
 
       {open && (
-        <div className="ml-8 mt-2 mb-2 text-xs text-gray-300 bg-[#121212] p-3 rounded">
+        <div className="ml-8 mt-2 mb-2 text-xs text-ink-muted bg-canvas p-3 rounded">
           <MetadataView metadata={span.metadata} />
 
           {/* autonomous_think: render response nicely */}

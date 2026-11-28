@@ -219,31 +219,31 @@ export default function GraphEditor() {
   const selectedRaw = selectedNode?.data?.raw || {};
 
   return (
-    <div className="h-screen flex flex-col bg-[#191A1A]">
-      <div className="h-14 flex items-center justify-between px-4 border-b border-[#1F2121] bg-[#0D0E0E]">
+    <div className="h-screen flex flex-col bg-surface">
+      <div className="h-14 flex items-center justify-between px-4 border-b border-line bg-canvas">
         <div className="flex items-center gap-3">
-          <Link to="/graphs" className="p-2 hover:bg-[#1F2121] rounded-lg">
-            <ArrowLeft className="w-5 h-5 text-gray-400" />
+          <Link to="/graphs" className="p-2 hover:bg-surface-raised rounded-lg">
+            <ArrowLeft className="w-5 h-5 text-ink-subtle" />
           </Link>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="bg-transparent text-white font-semibold text-lg outline-none border-b border-transparent focus:border-[#1FB8CD]"
+            className="bg-transparent text-ink font-semibold text-lg outline-none border-b border-transparent focus:border-primary-400"
           />
         </div>
         <div className="flex items-center gap-2">
-          {error && <span className="text-sm text-red-400">{error}</span>}
+          {error && <span className="text-sm text-danger">{error}</span>}
           <button
             onClick={save}
             disabled={saving}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-[#1F2121] hover:bg-[#252525] text-gray-200 border border-gray-700 rounded-lg disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-surface-raised hover:bg-surface-overlay text-ink border border-line-strong rounded-lg disabled:opacity-50"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
           </button>
           <button
             onClick={runGraph}
             disabled={running}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-[#1FB8CD] hover:bg-[#1AA5B8] text-white rounded-lg disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-primary-500 hover:bg-primary-600 text-ink rounded-lg disabled:opacity-50"
           >
             {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />} Run
           </button>
@@ -252,13 +252,13 @@ export default function GraphEditor() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Palette */}
-        <aside className="w-44 border-r border-[#1F2121] bg-[#0D0E0E] p-3 space-y-2 overflow-y-auto">
-          <div className="text-xs uppercase text-gray-500 font-semibold mb-2">Nodes</div>
+        <aside className="w-44 border-r border-line bg-canvas p-3 space-y-2 overflow-y-auto">
+          <div className="text-xs uppercase text-ink-faint font-semibold mb-2">Nodes</div>
           {nodeTypes.map((t) => (
             <button
               key={t}
               onClick={() => addNode(t)}
-              className="w-full text-left px-3 py-2 text-sm rounded-lg border border-gray-800 hover:border-[#1FB8CD]/40 text-gray-200 bg-[#191A1A]"
+              className="w-full text-left px-3 py-2 text-sm rounded-lg border border-line hover:border-primary-400/40 text-ink bg-surface"
               style={{ borderLeftColor: NODE_COLORS[t], borderLeftWidth: 3 }}
             >
               {t === 'input' && '📥 Input'}
@@ -292,25 +292,25 @@ export default function GraphEditor() {
 
           {/* Run result overlay */}
           {run && (
-            <div className="absolute bottom-4 right-4 w-96 max-h-80 overflow-auto bg-[#0D0E0E] border border-gray-800 rounded-lg p-4 text-sm">
+            <div className="absolute bottom-4 right-4 w-96 max-h-80 overflow-auto bg-canvas border border-line rounded-lg p-4 text-sm">
               <div className="flex items-center gap-2 mb-2">
-                {run.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-green-400" />}
-                {run.status === 'failed' && <XCircle className="w-4 h-4 text-red-400" />}
-                {run.status === 'running' && <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />}
-                <span className="font-semibold text-white">{run.status}</span>
-                <span className="text-xs text-gray-500 ml-auto">{run.run_id?.slice(0, 8)}</span>
+                {run.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-success" />}
+                {run.status === 'failed' && <XCircle className="w-4 h-4 text-danger" />}
+                {run.status === 'running' && <Loader2 className="w-4 h-4 animate-spin text-primary-400" />}
+                <span className="font-semibold text-ink">{run.status}</span>
+                <span className="text-xs text-ink-faint ml-auto">{run.run_id?.slice(0, 8)}</span>
               </div>
-              {run.error && <div className="text-red-400 text-xs mb-2">{run.error}</div>}
+              {run.error && <div className="text-danger text-xs mb-2">{run.error}</div>}
               {run.node_results && (
                 <div className="space-y-1">
                   {Object.entries(run.node_results).map(([nid, r]: any) => (
                     <div key={nid} className="text-xs">
                       <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${r.status === 'completed' ? 'bg-green-400' : r.status === 'failed' ? 'bg-red-400' : r.status === 'skipped' ? 'bg-gray-500' : 'bg-cyan-400 animate-pulse'}`} />
-                        <span className="text-gray-300">{nid}</span>
-                        <span className="text-gray-500 ml-auto">{r.status}</span>
+                        <span className={`w-2 h-2 rounded-full ${r.status === 'completed' ? 'bg-success' : r.status === 'failed' ? 'bg-danger' : r.status === 'skipped' ? 'bg-surface-overlay' : 'bg-primary-400 animate-pulse'}`} />
+                        <span className="text-ink-muted">{nid}</span>
+                        <span className="text-ink-faint ml-auto">{r.status}</span>
                       </div>
-                      {r.error && <div className="ml-4 text-red-400 break-words">{r.error}</div>}
+                      {r.error && <div className="ml-4 text-danger break-words">{r.error}</div>}
                     </div>
                   ))}
                 </div>
@@ -318,13 +318,13 @@ export default function GraphEditor() {
               {run.trace_job_id && (
                 <Link
                   to={`/playground-history/${run.trace_job_id}`}
-                  className="mt-3 inline-flex items-center gap-1 text-xs text-[#1FB8CD] hover:underline"
+                  className="mt-3 inline-flex items-center gap-1 text-xs text-primary-400 hover:underline"
                 >
                   View traces in Playground History →
                 </Link>
               )}
               {run.outputs && (
-                <pre className="mt-3 max-h-32 overflow-auto text-xs text-gray-300 bg-[#191A1A] rounded p-2 whitespace-pre-wrap">
+                <pre className="mt-3 max-h-32 overflow-auto text-xs text-ink-muted bg-surface rounded p-2 whitespace-pre-wrap">
                   {typeof run.outputs === 'string' ? run.outputs : JSON.stringify(run.outputs, null, 2)}
                 </pre>
               )}
@@ -333,13 +333,13 @@ export default function GraphEditor() {
         </div>
 
         {/* Config panel */}
-        <aside className="w-72 border-l border-[#1F2121] bg-[#0D0E0E] p-4 overflow-y-auto">
+        <aside className="w-72 border-l border-line bg-canvas p-4 overflow-y-auto">
           {selectedEdge ? (
             <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-white">Edge condition</h3>
-              <div className="text-xs text-gray-500 font-mono">{selectedEdge.source} → {selectedEdge.target}</div>
+              <h3 className="text-sm font-semibold text-ink">Edge condition</h3>
+              <div className="text-xs text-ink-faint font-mono">{selectedEdge.source} → {selectedEdge.target}</div>
               <label className="block">
-                <span className="text-xs text-gray-400">Field (in upstream output)</span>
+                <span className="text-xs text-ink-subtle">Field (in upstream output)</span>
                 <input
                   value={(selectedEdge as any).condition?.field || (selectedEdge as any).data?.condition?.field || 'branch'}
                   onChange={(e) => {
@@ -347,11 +347,11 @@ export default function GraphEditor() {
                     setEdges((eds) => eds.map((ed) => ed.id === selectedEdge.id ? { ...ed, data: { ...ed.data, condition: cond }, condition: cond } as any : ed));
                     setSelectedEdge((prev: Edge | null) => prev ? { ...prev, condition: cond } as any : prev);
                   }}
-                  className="mt-1 w-full bg-[#191A1A] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+                  className="mt-1 w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-ink"
                 />
               </label>
               <label className="block">
-                <span className="text-xs text-gray-400">Must equal</span>
+                <span className="text-xs text-ink-subtle">Must equal</span>
                 <input
                   value={(selectedEdge as any).condition?.equals || (selectedEdge as any).data?.condition?.equals || 'true'}
                   onChange={(e) => {
@@ -359,27 +359,27 @@ export default function GraphEditor() {
                     setEdges((eds) => eds.map((ed) => ed.id === selectedEdge.id ? { ...ed, data: { ...ed.data, condition: cond }, condition: cond } as any : ed));
                     setSelectedEdge((prev: Edge | null) => prev ? { ...prev, condition: cond } as any : prev);
                   }}
-                  className="mt-1 w-full bg-[#191A1A] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+                  className="mt-1 w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-ink"
                 />
               </label>
-              <p className="text-xs text-gray-500">Leave both as default for an unconditional edge.</p>
+              <p className="text-xs text-ink-faint">Leave both as default for an unconditional edge.</p>
             </div>
           ) : selectedNode ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-white">Node config</h3>
-                <button onClick={deleteSelected} className="text-gray-500 hover:text-red-400">
+                <h3 className="text-sm font-semibold text-ink">Node config</h3>
+                <button onClick={deleteSelected} className="text-ink-faint hover:text-danger">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
-              <div className="text-xs text-gray-500 font-mono">{selectedNode.id}</div>
+              <div className="text-xs text-ink-faint font-mono">{selectedNode.id}</div>
 
               <label className="block">
-                <span className="text-xs text-gray-400">Type</span>
+                <span className="text-xs text-ink-subtle">Type</span>
                 <select
                   value={selectedRaw.type || 'agent'}
                   onChange={(e) => updateSelectedNode({ type: e.target.value })}
-                  className="mt-1 w-full bg-[#191A1A] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+                  className="mt-1 w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-ink"
                 >
                   {nodeTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
@@ -387,11 +387,11 @@ export default function GraphEditor() {
 
               {selectedRaw.type === 'agent' && (
                 <label className="block">
-                  <span className="text-xs text-gray-400">Agent</span>
+                  <span className="text-xs text-ink-subtle">Agent</span>
                   <select
                     value={selectedRaw.agent_name || ''}
                     onChange={(e) => updateSelectedNode({ agent_name: e.target.value })}
-                    className="mt-1 w-full bg-[#191A1A] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+                    className="mt-1 w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-ink"
                   >
                     <option value="">— select —</option>
                     {agents.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -401,11 +401,11 @@ export default function GraphEditor() {
 
               {selectedRaw.type === 'tool' && (
                 <label className="block">
-                  <span className="text-xs text-gray-400">Tool name</span>
+                  <span className="text-xs text-ink-subtle">Tool name</span>
                   <input
                     value={selectedRaw.tool_name || ''}
                     onChange={(e) => updateSelectedNode({ tool_name: e.target.value })}
-                    className="mt-1 w-full bg-[#191A1A] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+                    className="mt-1 w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-ink"
                     placeholder="web_search"
                   />
                 </label>
@@ -414,7 +414,7 @@ export default function GraphEditor() {
               {selectedRaw.type === 'agent' && (
                 <>
                   <label className="block">
-                    <span className="text-xs text-gray-400">Prompt / task</span>
+                    <span className="text-xs text-ink-subtle">Prompt / task</span>
                     <textarea
                       value={selectedRaw.config?.prompt || ''}
                       onChange={(e) =>
@@ -423,7 +423,7 @@ export default function GraphEditor() {
                         })
                       }
                       rows={4}
-                      className="mt-1 w-full bg-[#191A1A] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+                      className="mt-1 w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-ink"
                       placeholder="What should this agent do?"
                     />
                   </label>
@@ -438,14 +438,14 @@ export default function GraphEditor() {
                       }
                       className="rounded"
                     />
-                    <span className="text-xs text-gray-400">Allow delegation to other agents</span>
+                    <span className="text-xs text-ink-subtle">Allow delegation to other agents</span>
                   </label>
                 </>
               )}
 
               {selectedRaw.type === 'tool' && (
                 <label className="block">
-                  <span className="text-xs text-gray-400">Tool arguments (key: value, one per line)</span>
+                  <span className="text-xs text-ink-subtle">Tool arguments (key: value, one per line)</span>
                   <textarea
                     value={Object.entries(selectedRaw.config?.args || {})
                       .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
@@ -468,7 +468,7 @@ export default function GraphEditor() {
                       updateSelectedNode({ config: { ...(selectedRaw.config || {}), args } });
                     }}
                     rows={5}
-                    className="mt-1 w-full bg-[#191A1A] border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 font-mono"
+                    className="mt-1 w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-xs text-ink font-mono"
                     placeholder={'query: quantum computing\nnum_results: 5'}
                   />
                 </label>
@@ -477,7 +477,7 @@ export default function GraphEditor() {
               {selectedRaw.type === 'conditional' && (
                 <>
                   <label className="block">
-                    <span className="text-xs text-gray-400">Condition field (in upstream output)</span>
+                    <span className="text-xs text-ink-subtle">Condition field (in upstream output)</span>
                     <input
                       value={selectedRaw.config?.condition_field || 'branch'}
                       onChange={(e) =>
@@ -485,12 +485,12 @@ export default function GraphEditor() {
                           config: { ...(selectedRaw.config || {}), condition_field: e.target.value },
                         })
                       }
-                      className="mt-1 w-full bg-[#191A1A] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+                      className="mt-1 w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-ink"
                       placeholder="branch"
                     />
                   </label>
                   <label className="block">
-                    <span className="text-xs text-gray-400">Must equal</span>
+                    <span className="text-xs text-ink-subtle">Must equal</span>
                     <input
                       value={selectedRaw.config?.condition_equals || 'true'}
                       onChange={(e) =>
@@ -498,22 +498,22 @@ export default function GraphEditor() {
                           config: { ...(selectedRaw.config || {}), condition_equals: e.target.value },
                         })
                       }
-                      className="mt-1 w-full bg-[#191A1A] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+                      className="mt-1 w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-ink"
                       placeholder="true"
                     />
                   </label>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-ink-faint">
                     Outgoing edges are taken only when the upstream output's field matches. Configure the condition on each edge in Advanced mode.
                   </p>
                 </>
               )}
 
               {(selectedRaw.type === 'input' || selectedRaw.type === 'output' || selectedRaw.type === 'merge') && (
-                <p className="text-xs text-gray-500">No configuration needed — this node passes data through.</p>
+                <p className="text-xs text-ink-faint">No configuration needed — this node passes data through.</p>
               )}
 
               <details className="mt-4">
-                <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300">Advanced (raw JSON)</summary>
+                <summary className="text-xs text-ink-faint cursor-pointer hover:text-ink-muted">Advanced (raw JSON)</summary>
                 <textarea
                   value={JSON.stringify(selectedRaw.config || {}, null, 2)}
                   onChange={(e) => {
@@ -524,12 +524,12 @@ export default function GraphEditor() {
                     }
                   }}
                   rows={6}
-                  className="mt-2 w-full bg-[#191A1A] border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 font-mono"
+                  className="mt-2 w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-xs text-ink font-mono"
                 />
               </details>
             </div>
           ) : (
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-ink-faint">
               <Settings2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
               Select a node to configure it.
             </div>

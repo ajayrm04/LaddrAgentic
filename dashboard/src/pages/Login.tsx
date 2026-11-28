@@ -2,87 +2,81 @@ import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn } from 'lucide-react';
 import { login } from '../lib/auth';
+import { Card } from '../components/ui';
 
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsSubmitting(true);
 
-    if (login(username, password)) {
+    // Keep the synchronous login flow but reflect a "submitting" state briefly.
+    const ok = login(username, password);
+    if (ok) {
       navigate('/');
     } else {
       setError('Invalid username or password');
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-[#1F2121] rounded-lg border border-gray-800 p-8">
-          {/* Logo Section */}
-          <div className="flex items-center justify-center mb-4">
-            <div className="w-12 h-12 rounded flex items-center justify-center">
-<svg width="61" height="61" viewBox="0 0 41 41" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M0 6.61364C0 2.96103 2.96103 0 6.61364 0H33.8864C37.539 0 40.5 2.96103 40.5 6.61364V33.8864C40.5 37.539 37.539 40.5 33.8864 40.5H6.61364C2.96103 40.5 0 37.539 0 33.8864V6.61364Z" fill="#191A1A"/>
-<g clip-path="url(#clip0_86_4639)">
-<path d="M31.4948 9.00521H9.00525V31.4948H31.4948V9.00521Z" fill="#181919" stroke="#231F20" stroke-width="0.0104118" stroke-miterlimit="10"/>
-<path d="M24.1832 14.0791V26.3934H16.7946V23.9306H21.7204V16.5419H16.7946V14.0791H24.1832Z" fill="#F9F9FA"/>
-<path d="M19.2576 19.0047V21.4678H14.3317V26.3934H11.8689V19.0047H19.2576Z" fill="#F9F9FA"/>
-<path d="M28.6311 23.9021H26.1123V26.4209H28.6311V23.9021Z" fill="#F9F9FA"/>
-</g>
-<defs>
-<clipPath id="clip0_86_4639">
-<rect width="22.5" height="22.5" fill="white" transform="translate(9 9)"/>
-</clipPath>
-</defs>
-</svg>
-
-            </div>
+    <div className="min-h-screen bg-canvas flex items-center justify-center p-4">
+      <div className="w-full max-w-md animate-fade-up">
+        <Card className="p-8">
+          {/* Logo */}
+          <div className="mb-6 flex justify-center">
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-400/15 text-xl font-bold text-primary-300 ring-1 ring-primary-400/25">
+              L
+            </span>
           </div>
 
           {/* Title */}
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-semibold text-white mb-2">Welcome Back</h1>
-            <p className="text-sm text-gray-400">Sign in to your account</p>
+          <div className="mb-8 text-center">
+            <h1 className="page-title">Welcome back</h1>
+            <p className="mt-1.5 text-sm text-ink-subtle">Sign in to your account</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg text-sm">
+              <div className="flex items-start gap-3 rounded-lg border border-danger-border bg-danger-subtle px-4 py-3 text-sm text-danger">
                 {error}
               </div>
             )}
 
             <div>
-              <label htmlFor="username" className="block text-sm font-medium text-white mb-2">
+              <label htmlFor="username" className="mb-1.5 block text-xs font-medium text-ink-muted">
                 Username
               </label>
               <input
                 id="username"
                 type="text"
+                autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-3 bg-[#171717] border border-gray-800 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent transition-all"
+                className="input"
                 placeholder="Enter your username"
                 required
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-white mb-2">
+              <label htmlFor="password" className="mb-1.5 block text-xs font-medium text-ink-muted">
                 Password
               </label>
               <input
                 id="password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-[#171717] border border-gray-800 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent transition-all"
+                className="input"
                 placeholder="Enter your password"
                 required
               />
@@ -90,19 +84,27 @@ export default function Login() {
 
             <button
               type="submit"
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#1FB8CD] hover:bg-cyan-500 text-black font-semibold rounded-lg transition-colors"
+              disabled={isSubmitting}
+              className="btn-primary w-full"
             >
-              <LogIn className="w-5 h-5" />
-              Sign In
+              {isSubmitting ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#06171A]/30 border-t-[#06171A]" />
+              ) : (
+                <LogIn className="h-4 w-4" />
+              )}
+              {isSubmitting ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-gray-800">
-            <p className="text-center text-sm text-gray-400">
-              Default credentials: <span className="text-[#1FB8CD] font-medium">admin / admin</span>
+          <div className="mt-6 border-t border-line pt-5 text-center">
+            <p className="text-xs text-ink-faint">
+              Default credentials:{' '}
+              <span className="rounded bg-surface-overlay px-1.5 py-0.5 font-mono text-ink-subtle">
+                admin / admin
+              </span>
             </p>
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );

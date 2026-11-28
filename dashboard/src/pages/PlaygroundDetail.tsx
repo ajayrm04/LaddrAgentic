@@ -73,15 +73,15 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
   const getIcon = () => {
     switch (span.type) {
       case 'agent':
-        return <Activity className="w-4 h-4 text-cyan-400" />;
+        return <Activity className="w-4 h-4 text-primary-400" />;
       case 'tool':
-        return <Code className="w-4 h-4 text-purple-400" />;
+        return <Code className="w-4 h-4 text-warning" />;
       case 'llm':
-        return <Brain className="w-4 h-4 text-green-400" />;
+        return <Brain className="w-4 h-4 text-success" />;
       case 'reasoning':
-        return <Database className="w-4 h-4 text-yellow-400" />;
+        return <Database className="w-4 h-4 text-warning" />;
       default:
-        return <div className="w-4 h-4 rounded-full bg-gray-600" />;
+        return <div className="w-4 h-4 rounded-full bg-surface-overlay" />;
     }
   };
 
@@ -92,18 +92,18 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
   };
 
   return (
-    <div className="border-b border-gray-800">
+    <div className="border-b border-line">
       <div
-        className="flex items-center gap-3 py-3 px-4 hover:bg-[#1F2121] cursor-pointer transition-colors"
+        className="flex items-center gap-3 py-3 px-4 hover:bg-surface-raised cursor-pointer transition-colors"
         style={{ paddingLeft: `${depth * 24 + 16}px` }}
         onClick={onToggle}
       >
         <div className="w-4 h-4 flex-shrink-0">
           {hasChildren && (
             isExpanded ? (
-              <ChevronDown className="w-4 h-4 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-ink-subtle" />
             ) : (
-              <ChevronRight className="w-4 h-4 text-gray-400" />
+              <ChevronRight className="w-4 h-4 text-ink-subtle" />
             )
           )}
         </div>
@@ -112,21 +112,21 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-white truncate">
+            <span className="text-sm font-medium text-ink truncate">
               {span.name || span.event_type}
             </span>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-ink-faint">
               {span.type}
             </span>
           </div>
           {span.agent && (
-            <div className="text-xs text-gray-400 mt-0.5">
+            <div className="text-xs text-ink-subtle mt-0.5">
               {span.agent}
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-4 text-xs text-gray-400">
+        <div className="flex items-center gap-4 text-xs text-ink-subtle">
           {typeof span.metadata?.tokens === 'number' && (
             <div className="flex items-center gap-1">
               <Zap className="w-3.5 h-3.5" />
@@ -143,40 +143,40 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
       </div>
 
       {isExpanded && (span.input || span.output || span.event_type === 'llm_usage' || span.event_type === 'autonomous_think') && (
-        <div className="px-4 pb-3 bg-[#0D0E0E]" style={{ paddingLeft: `${depth * 24 + 72}px` }}>
+        <div className="px-4 pb-3 bg-canvas" style={{ paddingLeft: `${depth * 24 + 72}px` }}>
           {/* For llm_usage - show provider, model, token details */}
           {span.event_type === 'llm_usage' && span.metadata && (
             <div className="mb-2">
-              <div className="text-xs text-gray-500 mb-1">LLM Usage:</div>
-              <div className="text-xs text-gray-300 bg-[#191A1A] p-2 rounded space-y-1">
+              <div className="text-xs text-ink-faint mb-1">LLM Usage:</div>
+              <div className="text-xs text-ink-muted bg-surface p-2 rounded space-y-1">
                 {span.metadata.provider && (
                   <div>
-                    <span className="text-gray-500">Provider:</span>
-                    <span className="ml-2 text-gray-300">{span.metadata.provider}</span>
+                    <span className="text-ink-faint">Provider:</span>
+                    <span className="ml-2 text-ink-muted">{span.metadata.provider}</span>
                   </div>
                 )}
                 {span.metadata.model && (
                   <div>
-                    <span className="text-gray-500">Model:</span>
-                    <span className="ml-2 text-gray-300">{span.metadata.model}</span>
+                    <span className="text-ink-faint">Model:</span>
+                    <span className="ml-2 text-ink-muted">{span.metadata.model}</span>
                   </div>
                 )}
                 {span.metadata.prompt_tokens != null && (
                   <div>
-                    <span className="text-gray-500">Prompt Tokens:</span>
-                    <span className="ml-2 text-gray-300">{Number(span.metadata.prompt_tokens).toLocaleString()}</span>
+                    <span className="text-ink-faint">Prompt Tokens:</span>
+                    <span className="ml-2 text-ink-muted">{Number(span.metadata.prompt_tokens).toLocaleString()}</span>
                   </div>
                 )}
                 {span.metadata.completion_tokens != null && (
                   <div>
-                    <span className="text-gray-500">Completion Tokens:</span>
-                    <span className="ml-2 text-gray-300">{Number(span.metadata.completion_tokens).toLocaleString()}</span>
+                    <span className="text-ink-faint">Completion Tokens:</span>
+                    <span className="ml-2 text-ink-muted">{Number(span.metadata.completion_tokens).toLocaleString()}</span>
                   </div>
                 )}
                 {span.metadata.total_tokens != null && (
                   <div>
-                    <span className="text-gray-500">Total Tokens:</span>
-                    <span className="ml-2 text-cyan-400 font-semibold">{Number(span.metadata.total_tokens).toLocaleString()}</span>
+                    <span className="text-ink-faint">Total Tokens:</span>
+                    <span className="ml-2 text-primary-400 font-semibold">{Number(span.metadata.total_tokens).toLocaleString()}</span>
                   </div>
                 )}
               </div>
@@ -189,9 +189,9 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
               {span.metadata.response && (
                 <div className="mb-2">
                   <div className="flex items-center justify-between mb-1">
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-ink-faint">
                       Reasoning Response:
-                      <span className="ml-2 text-gray-400">
+                      <span className="ml-2 text-ink-subtle">
                         ({typeof span.metadata.response === 'string' 
                           ? span.metadata.response.length.toLocaleString() 
                           : JSON.stringify(span.metadata.response).length.toLocaleString()} chars)
@@ -204,12 +204,12 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
                           : JSON.stringify(span.metadata.response, null, 2);
                         navigator.clipboard.writeText(text);
                       }}
-                      className="text-xs px-2 py-1 bg-[#1FB8CD]/10 hover:bg-[#1FB8CD]/20 text-[#1FB8CD] rounded border border-[#1FB8CD]/30 transition-colors"
+                      className="text-xs px-2 py-1 bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 rounded border border-primary-400/30 transition-colors"
                     >
                       Copy
                     </button>
                   </div>
-                  <div className="text-xs text-gray-300 bg-[#191A1A] p-3 rounded border border-gray-800 max-h-96 overflow-y-auto">
+                  <div className="text-xs text-ink-muted bg-surface p-3 rounded border border-line max-h-96 overflow-y-auto">
                     <pre className="whitespace-pre-wrap break-words">
                       {(() => {
                         const parsed = tryParseJson(span.metadata.response);
@@ -225,14 +225,14 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
               )}
               {span.metadata.iteration !== undefined && (
                 <div className="mb-2">
-                  <div className="text-xs text-gray-500 mb-1">Details:</div>
-                  <div className="text-xs text-gray-300 bg-[#191A1A] p-2 rounded border border-gray-800">
-                    <span className="text-gray-500">Iteration:</span>
-                    <span className="ml-2 text-gray-300">{span.metadata.iteration}</span>
+                  <div className="text-xs text-ink-faint mb-1">Details:</div>
+                  <div className="text-xs text-ink-muted bg-surface p-2 rounded border border-line">
+                    <span className="text-ink-faint">Iteration:</span>
+                    <span className="ml-2 text-ink-muted">{span.metadata.iteration}</span>
                     {span.metadata.duration_ms && (
                       <>
-                        <span className="text-gray-500 ml-4">Duration:</span>
-                        <span className="ml-2 text-gray-300">{(span.metadata.duration_ms / 1000).toFixed(2)}s</span>
+                        <span className="text-ink-faint ml-4">Duration:</span>
+                        <span className="ml-2 text-ink-muted">{(span.metadata.duration_ms / 1000).toFixed(2)}s</span>
                       </>
                     )}
                   </div>
@@ -244,8 +244,8 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
           {/* Standard Input (for other event types) */}
           {span.event_type !== 'llm_usage' && span.event_type !== 'autonomous_think' && span.input && (
             <div className="mb-2">
-              <div className="text-xs text-gray-500 mb-1">Input:</div>
-              <pre className="text-xs text-gray-300 bg-[#191A1A] p-2 rounded overflow-x-auto whitespace-pre-wrap break-words">
+              <div className="text-xs text-ink-faint mb-1">Input:</div>
+              <pre className="text-xs text-ink-muted bg-surface p-2 rounded overflow-x-auto whitespace-pre-wrap break-words">
                 {typeof span.input === 'string'
                   ? (tryParseJson(span.input) ? JSON.stringify(tryParseJson(span.input), null, 2) : span.input)
                   : JSON.stringify(span.input, null, 2)}
@@ -256,8 +256,8 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
           {/* Standard Output (for other event types) */}
           {span.event_type !== 'llm_usage' && span.event_type !== 'autonomous_think' && span.output && (
             <div>
-              <div className="text-xs text-gray-500 mb-1">Output:</div>
-              <pre className="text-xs text-gray-300 bg-[#191A1A] p-2 rounded overflow-x-auto whitespace-pre-wrap break-words">
+              <div className="text-xs text-ink-faint mb-1">Output:</div>
+              <pre className="text-xs text-ink-muted bg-surface p-2 rounded overflow-x-auto whitespace-pre-wrap break-words">
                 {typeof span.output === 'string'
                   ? (tryParseJson(span.output) ? JSON.stringify(tryParseJson(span.output), null, 2) : span.output)
                   : JSON.stringify(span.output, null, 2)}
@@ -279,16 +279,16 @@ export default function PlaygroundDetail() {
   const getStatusIcon = () => {
     switch (prompt?.status) {
       case 'completed':
-        return <CheckCircle className="w-8 h-8 text-green-500" />;
+        return <CheckCircle className="w-8 h-8 text-success" />;
       case 'error':
       case 'failed':
-        return <XCircle className="w-8 h-8 text-red-500" />;
+        return <XCircle className="w-8 h-8 text-danger" />;
       case 'running':
-        return <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />;
+        return <Loader2 className="w-8 h-8 text-info animate-spin" />;
       case 'canceled':
-        return <XCircle className="w-8 h-8 text-gray-500" />;
+        return <XCircle className="w-8 h-8 text-ink-faint" />;
       default:
-        return <Clock className="w-8 h-8 text-gray-400" />;
+        return <Clock className="w-8 h-8 text-ink-subtle" />;
     }
   };
 
@@ -332,7 +332,7 @@ export default function PlaygroundDetail() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-gray-400">Loading playground run...</p>
+        <p className="text-ink-subtle">Loading playground run...</p>
       </div>
     );
   }
@@ -340,8 +340,8 @@ export default function PlaygroundDetail() {
   if (!prompt) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-400">Playground run not found</p>
-        <Link to="/playground-history" className="text-[#1FB8CD] hover:text-[#1AA5B8] mt-4 inline-block">
+        <p className="text-ink-subtle">Playground run not found</p>
+        <Link to="/playground-history" className="text-primary-400 hover:text-primary-400 mt-4 inline-block">
           Back to history
         </Link>
       </div>
@@ -349,20 +349,20 @@ export default function PlaygroundDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-[#191A1A] p-6 space-y-6">
+    <div className="min-h-screen bg-surface p-6 space-y-6">
       <div className="flex items-center gap-4">
-        <Link to="/playground-history" className="p-2 hover:bg-[#1F2121] rounded-lg transition-colors">
-          <ArrowLeft className="w-5 h-5 text-gray-400" />
+        <Link to="/playground-history" className="p-2 hover:bg-surface-raised rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-ink-subtle" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-white">Playground Run Details</h1>
-          <code className="text-gray-400 text-sm">{prompt.prompt_id}</code>
+          <h1 className="page-title">Playground Run Details</h1>
+          <code className="text-ink-subtle text-sm">{prompt.prompt_id}</code>
         </div>
         {prompt.status === 'running' && (
           <button
             onClick={handleCancel}
             disabled={cancelPlayground.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-danger/10 hover:bg-danger/20 text-danger border border-danger/30 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <StopCircle className="w-4 h-4" />
             {cancelPlayground.isPending ? 'Canceling...' : 'Cancel Run'}
@@ -371,7 +371,7 @@ export default function PlaygroundDetail() {
         {prompt.report_id && (
           <Link
             to={`/reports/${prompt.report_id}`}
-            className="flex items-center gap-2 px-4 py-2 bg-[#1FB8CD]/10 hover:bg-[#1FB8CD]/20 text-[#1FB8CD] border border-[#1FB8CD]/30 rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 border border-primary-400/30 rounded-lg font-medium transition-colors"
           >
             <FileText className="w-4 h-4" />
             View Report
@@ -379,35 +379,35 @@ export default function PlaygroundDetail() {
         )}
       </div>
 
-      <div className="bg-[#1F2121] rounded-lg p-6 border border-gray-800">
+      <div className="bg-surface-raised rounded-lg p-6 border border-line">
         <div className="flex items-center gap-4 mb-6">
           {getStatusIcon()}
           <div>
-            <h2 className="text-2xl font-bold text-white capitalize">{prompt.status}</h2>
-            <p className="text-gray-400">Agent: {prompt.prompt_name}</p>
+            <h2 className="text-xl font-semibold text-ink capitalize">{prompt.status}</h2>
+            <p className="text-ink-subtle">Agent: {prompt.prompt_name}</p>
           </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <h3 className="text-sm font-medium text-gray-400 mb-1">Created</h3>
-            <p className="text-white">{prompt.created_at ? format(new Date(prompt.created_at), 'MMM d, yyyy HH:mm:ss') : '-'}</p>
+            <h3 className="text-sm font-medium text-ink-subtle mb-1">Created</h3>
+            <p className="text-ink">{prompt.created_at ? format(new Date(prompt.created_at), 'MMM d, yyyy HH:mm:ss') : '-'}</p>
           </div>
           {prompt.completed_at && (
             <div>
-              <h3 className="text-sm font-medium text-gray-400 mb-1">Completed</h3>
-              <p className="text-white">{format(new Date(prompt.completed_at), 'MMM d, yyyy HH:mm:ss')}</p>
+              <h3 className="text-sm font-medium text-ink-subtle mb-1">Completed</h3>
+              <p className="text-ink">{format(new Date(prompt.completed_at), 'MMM d, yyyy HH:mm:ss')}</p>
             </div>
           )}
           {prompt.token_usage?.total_tokens !== undefined && (
             <div className="col-span-2 md:col-span-2">
-              <h3 className="text-sm font-medium text-gray-400 mb-1">Token usage</h3>
-              <div className="flex items-center gap-3 text-white">
-                <Database className="w-4 h-4 text-[#1FB8CD]" />
+              <h3 className="text-sm font-medium text-ink-subtle mb-1">Token usage</h3>
+              <div className="flex items-center gap-3 text-ink">
+                <Database className="w-4 h-4 text-primary-400" />
                 <span className="text-sm">
                   total: <span className="font-semibold">{prompt.token_usage.total_tokens}</span>
                 </span>
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-ink-subtle">
                   (prompt: {prompt.token_usage.prompt_tokens ?? 0}, completion: {prompt.token_usage.completion_tokens ?? 0})
                 </span>
               </div>
@@ -418,17 +418,17 @@ export default function PlaygroundDetail() {
 
       {/* Live streaming transcript */}
       {liveOutput && !isComplete && (
-        <div className="bg-[#1F2121] rounded-lg border border-cyan-900/60">
-          <div className="px-6 py-4 border-b border-gray-800 flex items-center gap-2">
-            <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
-            <h2 className="text-lg font-semibold text-cyan-300">
+        <div className="bg-surface-raised rounded-lg border border-primary-400/25">
+          <div className="px-6 py-4 border-b border-line flex items-center gap-2">
+            <span className="w-2 h-2 bg-primary-400 rounded-full animate-pulse" />
+            <h2 className="text-lg font-semibold text-primary-300">
               Live output{liveAgent ? ` · ${liveAgent}` : ''}
             </h2>
           </div>
           <div className="p-6">
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-gray-200">
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-ink">
               {liveOutput}
-              <span className="inline-block w-2 h-4 bg-cyan-400 ml-0.5 animate-pulse align-middle" />
+              <span className="inline-block w-2 h-4 bg-primary-400 ml-0.5 animate-pulse align-middle" />
             </pre>
           </div>
         </div>
@@ -438,18 +438,18 @@ export default function PlaygroundDetail() {
 
       {/* Live Traces Section */}
       {(prompt.status === 'running' || spans.length > 0) && (
-        <div className="border-t-2 border-t-[#1FB8CD] bg-[#0D0E0E] rounded-lg shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
-          <div className="px-6 py-3 border-b border-gray-800 bg-[#0D0E0E] flex items-center justify-between">
+        <div className="border-t-2 border-t-[#1FB8CD] bg-canvas rounded-lg shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
+          <div className="px-6 py-3 border-b border-line bg-canvas flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <h2 className="text-sm font-semibold text-white">Live Trace</h2>
+              <h2 className="text-sm font-semibold text-ink">Live Trace</h2>
               {isConnected && !isComplete && (
-                <span className="flex items-center gap-1.5 text-xs text-cyan-400">
-                  <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
+                <span className="flex items-center gap-1.5 text-xs text-primary-400">
+                  <span className="w-2 h-2 bg-primary-400 rounded-full animate-pulse" />
                   Running
                 </span>
               )}
               {isComplete && (
-                <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400">
+                <span className="text-xs px-2 py-1 rounded bg-success/20 text-success">
                   Completed
                 </span>
               )}
@@ -457,7 +457,7 @@ export default function PlaygroundDetail() {
             
             <div className="flex items-center gap-6">
               {spans.length > 0 && (
-                <div className="flex items-center gap-6 text-xs text-gray-400">
+                <div className="flex items-center gap-6 text-xs text-ink-subtle">
                   <div className="flex items-center gap-1.5">
                     <Database className="w-3.5 h-3.5" />
                     <span>{spans.length} spans</span>
@@ -479,9 +479,9 @@ export default function PlaygroundDetail() {
             </div>
           </div>
 
-          <div className="h-96 overflow-y-auto bg-[#0D0E0E]">
+          <div className="h-96 overflow-y-auto bg-canvas">
             {spans.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-gray-500">
+              <div className="flex items-center justify-center h-full text-ink-faint">
                 <div className="text-center">
                   <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
                   <p className="text-sm">Waiting for traces...</p>
@@ -505,13 +505,13 @@ export default function PlaygroundDetail() {
       )}
 
       {prompt.outputs && (
-        <div className="bg-[#1F2121] rounded-lg border border-gray-800">
-          <div className="px-6 py-4 border-b border-gray-800">
-            <h2 className="text-lg font-semibold text-white">Outputs</h2>
+        <div className="bg-surface-raised rounded-lg border border-line">
+          <div className="px-6 py-4 border-b border-line">
+            <h2 className="text-lg font-semibold text-ink">Outputs</h2>
           </div>
           <div className="p-6">
-            <div className="bg-[#0D0E0E] rounded-lg p-4 border border-gray-800">
-              <pre className="text-sm text-gray-300 overflow-x-auto whitespace-pre-wrap">
+            <div className="bg-canvas rounded-lg p-4 border border-line">
+              <pre className="text-sm text-ink-muted overflow-x-auto whitespace-pre-wrap">
                 {typeof prompt.outputs === 'string' 
                   ? (tryParseJson(prompt.outputs) !== null
                     ? JSON.stringify(tryParseJson(prompt.outputs), null, 2)
@@ -524,12 +524,12 @@ export default function PlaygroundDetail() {
       )}
 
       {prompt.error && (
-        <div className="bg-[#1F2121] rounded-lg border border-red-700">
-          <div className="px-6 py-4 border-b border-red-700">
-            <h2 className="text-lg font-semibold text-red-500">Error</h2>
+        <div className="bg-surface-raised rounded-lg border border-danger-border">
+          <div className="px-6 py-4 border-b border-danger-border">
+            <h2 className="text-lg font-semibold text-danger">Error</h2>
           </div>
           <div className="p-6">
-            <pre className="bg-[#0D0E0E] rounded-lg p-4 text-sm text-red-400 overflow-x-auto">
+            <pre className="bg-canvas rounded-lg p-4 text-sm text-danger overflow-x-auto">
               {prompt.error}
             </pre>
           </div>

@@ -58,7 +58,7 @@ export function CardHeader({
         <div className="min-w-0">
           <h3 className="section-title truncate">{title}</h3>
           {subtitle && (
-            <p className="mt-0.5 text-xs text-ink-subtle truncate">{subtitle}</p>
+            <p className="mt-0.5 text-sm text-ink-subtle truncate">{subtitle}</p>
           )}
         </div>
       </div>
@@ -118,18 +118,18 @@ export function StatCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-ink-subtle truncate">{label}</p>
+          <p className="text-sm font-medium text-ink-subtle truncate">{label}</p>
           <div className="mt-2 flex items-baseline gap-2">
             {loading ? (
               <div className="skeleton h-8 w-20" />
             ) : (
-              <span className="text-3xl font-semibold text-ink tabular-nums tracking-tight">
+              <span className="text-4xl font-semibold text-ink tabular-nums tracking-tight">
                 {value}
               </span>
             )}
           </div>
           {hint && (
-            <p className="mt-1.5 text-xs text-ink-faint truncate">{hint}</p>
+            <p className="mt-1.5 text-sm text-ink-faint truncate">{hint}</p>
           )}
         </div>
         {icon && (
@@ -287,7 +287,7 @@ export function EmptyState({
       )}
       <h3 className="section-title">{title}</h3>
       {description && (
-        <p className="mt-1.5 max-w-md text-sm text-ink-subtle">{description}</p>
+        <p className="mt-1.5 max-w-md text-base text-ink-subtle">{description}</p>
       )}
       {action && <div className="mt-5">{action}</div>}
     </div>

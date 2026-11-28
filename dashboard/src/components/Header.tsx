@@ -55,7 +55,7 @@ export default function Header({ onOpenMobileNav }: HeaderProps) {
       </button>
 
       <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
-        <ol className="flex items-center gap-1.5 overflow-hidden text-sm">
+        <ol className="flex items-center gap-1.5 overflow-hidden text-base">
           {breadcrumbs.map((crumb, index) => {
             const isLast = index === breadcrumbs.length - 1;
             return (

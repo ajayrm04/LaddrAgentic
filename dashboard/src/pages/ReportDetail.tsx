@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   Copy,
@@ -14,6 +16,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import ReportView from '../components/ReportView';
+import { CardSkeleton, EmptyState } from '../components/ui';
 import {
   downloadReportMarkdown,
   openReportPrintView,
@@ -21,6 +24,100 @@ import {
   useReport,
   useShareReport,
 } from '../lib/queries/reports';
+
+const ACCENT_BUTTON_CLASSES =
+  'btn border border-primary-400/20 bg-primary-400/10 text-primary-300 hover:bg-primary-400/20 active:translate-y-px';
+
+/* ------------------------------------------------------------------ */
+/* Destructive confirm dialog (spec §10)                                */
+/* ------------------------------------------------------------------ */
+
+function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel,
+  busy = false,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  description: ReactNode;
+  confirmLabel: string;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    panelRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancelRef.current();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-dialog-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onCancel();
+      }}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="surface w-full max-w-md shadow-pop animate-fade-up focus:outline-none"
+      >
+        <div className="border-b border-line px-5 py-4">
+          <h2 id="confirm-dialog-title" className="section-title">
+            {title}
+          </h2>
+          <p className="mt-1 text-sm text-ink-subtle">{description}</p>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4">
+          <button type="button" onClick={onCancel} disabled={busy} className="btn-secondary">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="btn-danger"
+            autoFocus={false}
+          >
+            {busy ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Deleting…
+              </>
+            ) : (
+              confirmLabel
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ReportDetail() {
   const { reportId } = useParams<{ reportId: string }>();
@@ -33,6 +130,7 @@ export default function ReportDetail() {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState<'download' | 'print' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleShare = async () => {
     if (!report) return;
@@ -83,119 +181,178 @@ export default function ReportDetail() {
     }
   };
 
-  const handleDelete = async () => {
+  const confirmDelete = async () => {
     if (!report) return;
-    if (!window.confirm('Delete this report? This cannot be undone.')) return;
+    setActionError(null);
     try {
       await deleteReport.mutateAsync(report.report_id);
+      setConfirmOpen(false);
       navigate('/reports');
     } catch (err: any) {
       setActionError(err?.response?.data?.detail || 'Could not delete the report.');
+      setConfirmOpen(false);
     }
   };
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-gray-400">Loading report…</p>
+      <div className="space-y-6" aria-busy="true">
+        <CardSkeleton rows={2} />
+        <CardSkeleton rows={6} />
       </div>
     );
   }
 
   if (isError || !report) {
     return (
-      <div className="text-center py-12">
-        <p className="text-gray-400">Report not found</p>
-        <Link to="/reports" className="text-[#1FB8CD] hover:underline mt-4 inline-block">
-          Back to reports
-        </Link>
-      </div>
+      <EmptyState
+        icon={<FileText className="h-5 w-5" />}
+        title="Report not found"
+        description="The report may have been deleted, or the link is incorrect."
+        action={
+          <Link to="/reports" className="btn-secondary">
+            Back to reports
+          </Link>
+        }
+      />
     );
   }
 
   return (
-    <div className="space-y-6 bg-[#191A1A] p-6">
-      <div className="flex items-start gap-4">
-        <Link to="/reports" className="p-2 hover:bg-[#1F2121] rounded-lg transition-colors mt-1">
-          <ArrowLeft className="w-5 h-5 text-gray-400" />
-        </Link>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-white break-words">
-            {report.title || 'Untitled report'}
-          </h1>
-          <p className="text-sm text-gray-400 mt-1 break-words">{report.question}</p>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mt-2">
-            <span>Generated {report.created_at ? format(new Date(report.created_at), 'MMM d, yyyy HH:mm') : '—'}</span>
-            <code className="font-mono">{report.report_id.slice(0, 8)}</code>
-            {report.prompt_id && (
-              <Link
-                to={`/playground-history/${report.prompt_id}`}
-                className="text-[#1FB8CD] hover:underline inline-flex items-center gap-1"
-              >
-                View prompt run <ExternalLink className="w-3 h-3" />
-              </Link>
-            )}
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Link
+            to="/reports"
+            aria-label="Back to reports"
+            title="Back to reports"
+            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface-overlay hover:text-ink"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <div className="min-w-0 flex-1">
+            <h1 className="page-title break-words">{report.title || 'Untitled report'}</h1>
+            <p className="mt-1 break-words text-sm text-ink-subtle">{report.question}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-faint">
+              <span>
+                Generated{' '}
+                {report.created_at
+                  ? format(new Date(report.created_at), 'MMM d, yyyy HH:mm')
+                  : '—'}
+              </span>
+              <code className="font-mono">{report.report_id.slice(0, 8)}</code>
+              {report.prompt_id && (
+                <Link
+                  to={`/playground-history/${report.prompt_id}`}
+                  className="inline-flex items-center gap-1 text-primary-400 transition-colors hover:text-primary-300"
+                >
+                  View prompt run <ExternalLink className="h-3 w-3" />
+                </Link>
+              )}
+            </div>
           </div>
         </div>
+
         <div className="flex flex-wrap items-center gap-2">
           <button
+            type="button"
             onClick={handleDownload}
             disabled={busy === 'download'}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-[#1F2121] hover:bg-[#252525] text-gray-200 border border-gray-700 rounded-lg transition-colors disabled:opacity-50"
+            className="btn-secondary"
           >
-            {busy === 'download' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {busy === 'download' ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
             Markdown
           </button>
           <button
+            type="button"
             onClick={handlePrint}
             disabled={busy === 'print'}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-[#1F2121] hover:bg-[#252525] text-gray-200 border border-gray-700 rounded-lg transition-colors disabled:opacity-50"
+            className="btn-secondary"
           >
-            {busy === 'print' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+            {busy === 'print' ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="h-4 w-4" />
+            )}
             Print / PDF
           </button>
           <button
+            type="button"
             onClick={handleShare}
             disabled={shareReport.isPending}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-[#1FB8CD]/10 hover:bg-[#1FB8CD]/20 text-[#1FB8CD] border border-[#1FB8CD]/30 rounded-lg transition-colors disabled:opacity-50"
+            className={ACCENT_BUTTON_CLASSES}
           >
-            {shareReport.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+            {shareReport.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Link2 className="h-4 w-4" />
+            )}
             Share
           </button>
           <button
-            onClick={handleDelete}
+            type="button"
+            onClick={() => setConfirmOpen(true)}
             disabled={deleteReport.isPending}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50"
+            className="btn-danger"
+            aria-label="Delete report"
+            title="Delete report"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="h-4 w-4" />
           </button>
         </div>
       </div>
 
       {actionError && (
-        <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
-          {actionError}
+        <div className="flex items-start gap-3 rounded-lg border border-danger-border bg-danger-subtle px-4 py-3 text-sm text-danger">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1">{actionError}</div>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="btn-ghost h-7 px-2"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
       {shareUrl && (
-        <div className="flex flex-wrap items-center gap-3 text-sm bg-[#1F2121] border border-gray-800 rounded-lg px-4 py-3">
-          <FileText className="w-4 h-4 text-[#1FB8CD]" />
-          <span className="text-gray-300">Public link (expires in 30 days):</span>
-          <code className="text-[#1FB8CD] break-all flex-1 min-w-0">{shareUrl}</code>
+        <div className="surface flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+          <FileText className="h-4 w-4 shrink-0 text-primary-400" />
+          <span className="text-ink-muted">Public link (expires in 30 days):</span>
+          <code className="min-w-0 flex-1 break-all font-mono text-primary-300">{shareUrl}</code>
           <button
+            type="button"
             onClick={() => copyToClipboard(shareUrl)}
-            className="flex items-center gap-1 text-xs text-gray-300 hover:text-white"
+            className="btn-ghost h-7 px-2 shrink-0"
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-success" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
             {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
       )}
 
-      <div className="bg-[#1F2121] rounded-lg border border-gray-800 p-6">
+      <div className="surface p-5">
         <ReportView report={report} showMethodology />
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Delete this report?"
+        description="The report, its sources, and the public share link are removed permanently. This cannot be undone."
+        confirmLabel="Delete report"
+        busy={deleteReport.isPending}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

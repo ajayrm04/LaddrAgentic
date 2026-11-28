@@ -78,16 +78,16 @@ function describeEvent(ev: SpanLike): { label: string; detail?: string; tone: st
   const meta = ev.metadata || {};
   switch (ev.event_type) {
     case 'task_start':
-      return { label: 'started', tone: 'bg-cyan-400' };
+      return { label: 'started', tone: 'bg-primary-400' };
     case 'task_complete':
-      return { label: 'completed', tone: 'bg-green-400' };
+      return { label: 'completed', tone: 'bg-success' };
     case 'task_error':
-      return { label: 'error', detail: truncate(meta.error ?? ev.output ?? ''), tone: 'bg-red-400' };
+      return { label: 'error', detail: truncate(meta.error ?? ev.output ?? ''), tone: 'bg-danger' };
     case 'task_cancelled':
       return { label: 'cancelled', tone: 'bg-yellow-400' };
     case 'autonomous_think': {
       const { action, detail } = parseThinkResponse(meta.response ?? ev.output ?? '');
-      return { label: action, detail, tone: 'bg-cyan-400' };
+      return { label: action, detail, tone: 'bg-primary-400' };
     }
     case 'tool_call': {
       const tool = meta.tool ?? meta.params?.tool ?? ev.name ?? 'tool';
@@ -96,17 +96,17 @@ function describeEvent(ev: SpanLike): { label: string; detail?: string; tone: st
     case 'tool_result': {
       const tool = meta.tool ?? meta.params?.tool ?? ev.name ?? 'tool';
       const detail = meta.result ?? ev.output ?? meta.error ?? '';
-      return { label: `result · ${tool}`, detail: truncate(detail), tone: meta.error ? 'bg-red-400' : 'bg-emerald-400' };
+      return { label: `result · ${tool}`, detail: truncate(detail), tone: meta.error ? 'bg-danger' : 'bg-emerald-400' };
     }
     case 'llm_usage':
-      return { label: `tokens · ${meta.tokens ?? 0}`, tone: 'bg-gray-500' };
+      return { label: `tokens · ${meta.tokens ?? 0}`, tone: 'bg-surface-overlay' };
     case 'delegation':
       return { label: `delegated · ${meta.target_agent ?? ''}`, detail: truncate(meta.payload ?? ''), tone: 'bg-yellow-400' };
     default:
       return {
         label: ev.event_type || ev.name || 'event',
         detail: meta.error ? truncate(meta.error) : undefined,
-        tone: 'bg-gray-500',
+        tone: 'bg-surface-overlay',
       };
   }
 }
@@ -202,26 +202,26 @@ export default function BlackboardRunView({
           return (
             <div
               key={agent}
-              className={`bg-[#1F2121] border rounded-lg p-4 transition-colors ${
-                active ? 'border-[#1FB8CD] shadow-[0_0_0_1px_rgba(31,184,205,0.4)]' : 'border-gray-800'
+              className={`bg-surface-raised border rounded-lg p-4 transition-colors ${
+                active ? 'border-primary-400 shadow-[0_0_0_1px_rgba(31,184,205,0.4)]' : 'border-line'
               }`}
             >
               <div className="flex items-center gap-2 mb-2">
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    active ? 'bg-cyan-400 animate-pulse' : finished ? 'bg-green-400' : 'bg-gray-500'
+                    active ? 'bg-primary-400 animate-pulse' : finished ? 'bg-success' : 'bg-surface-overlay'
                   }`}
                 />
-                <Cpu className="w-4 h-4 text-[#1FB8CD]" />
-                <span className="text-sm font-semibold text-white">{agent}</span>
-                <span className="text-xs text-gray-500 ml-auto">
+                <Cpu className="w-4 h-4 text-primary-400" />
+                <span className="text-sm font-semibold text-ink">{agent}</span>
+                <span className="text-xs text-ink-faint ml-auto">
                   {active ? 'working…' : finished ? 'done' : isComplete ? 'done' : 'waiting'}
                 </span>
               </div>
 
-              <div className="max-h-72 overflow-auto bg-[#0D0E0E] border border-gray-800 rounded p-2 space-y-1.5">
+              <div className="max-h-72 overflow-auto bg-canvas border border-line rounded p-2 space-y-1.5">
                 {events.length === 0 && !live && (
-                  <p className="text-xs text-gray-500 italic">
+                  <p className="text-xs text-ink-faint italic">
                     {active ? 'Waiting for output…' : 'No activity yet.'}
                   </p>
                 )}
@@ -232,9 +232,9 @@ export default function BlackboardRunView({
                     <div key={`${ev.id ?? idx}-${idx}`} className="flex gap-2 text-[11px] leading-snug">
                       <span className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${tone}`} />
                       <div className="min-w-0">
-                        <span className="text-gray-300">{label}</span>
+                        <span className="text-ink-muted">{label}</span>
                         {detail && (
-                          <div className="text-gray-500 break-words whitespace-pre-wrap">{detail}</div>
+                          <div className="text-ink-faint break-words whitespace-pre-wrap">{detail}</div>
                         )}
                       </div>
                     </div>
@@ -242,14 +242,14 @@ export default function BlackboardRunView({
                 })}
 
                 {live && (
-                  <div className="mt-2 pt-2 border-t border-gray-800">
-                    <div className="text-[10px] uppercase tracking-wide text-cyan-500/80 mb-1">
+                  <div className="mt-2 pt-2 border-t border-line">
+                    <div className="text-[10px] uppercase tracking-wide text-primary-400/80 mb-1">
                       live output
                     </div>
-                    <pre className="whitespace-pre-wrap break-words text-xs text-gray-200">
+                    <pre className="whitespace-pre-wrap break-words text-xs text-ink">
                       {live}
                       {active && (
-                        <span className="inline-block w-2 h-3 bg-cyan-400 ml-0.5 animate-pulse align-middle" />
+                        <span className="inline-block w-2 h-3 bg-primary-400 ml-0.5 animate-pulse align-middle" />
                       )}
                     </pre>
                   </div>
@@ -261,15 +261,15 @@ export default function BlackboardRunView({
       </div>
 
       {/* Central Blackboard */}
-      <div className="bg-[#1F2121] border border-[#1FB8CD]/40 rounded-lg">
-        <div className="px-6 py-4 border-b border-gray-800 flex items-center gap-2">
-          <Database className="w-4 h-4 text-[#1FB8CD]" />
-          <h2 className="text-lg font-semibold text-white">Blackboard</h2>
-          <span className="text-xs text-gray-500 ml-auto mr-2">{bbEntries.length} keys</span>
+      <div className="bg-surface-raised border border-primary-400/40 rounded-lg">
+        <div className="px-6 py-4 border-b border-line flex items-center gap-2">
+          <Database className="w-4 h-4 text-primary-400" />
+          <h2 className="text-lg font-semibold text-ink">Blackboard</h2>
+          <span className="text-xs text-ink-faint ml-auto mr-2">{bbEntries.length} keys</span>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="p-1.5 hover:bg-[#2A2C2C] rounded text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+            className="p-1.5 hover:bg-surface-overlay rounded text-ink-subtle hover:text-ink transition-colors disabled:opacity-50"
             aria-label="Refresh blackboard"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -277,21 +277,21 @@ export default function BlackboardRunView({
         </div>
         <div className="p-6">
           {bbEntries.length === 0 ? (
-            <p className="text-sm text-gray-500">Agents will post shared state here as they collaborate.</p>
+            <p className="text-sm text-ink-faint">Agents will post shared state here as they collaborate.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {bbEntries.map(([key, entry]: any) => (
-                <div key={key} className="bg-[#0D0E0E] border border-gray-800 rounded p-3">
+                <div key={key} className="bg-canvas border border-line rounded p-3">
                   <div className="flex items-center justify-between mb-1 gap-2">
-                    <code className="text-sm text-[#1FB8CD] font-mono truncate">{key}</code>
+                    <code className="text-sm text-primary-400 font-mono truncate">{key}</code>
                     <div className="flex items-center gap-1 shrink-0">
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-ink-faint">
                         {entry?.updated_by || 'unknown'}
                         {entry?.updated_at ? ` · ${new Date(entry.updated_at).toLocaleTimeString()}` : ''}
                       </span>
                       <button
                         onClick={() => handleDelete(key)}
-                        className="p-1 hover:bg-[#2A2C2C] rounded text-gray-500 hover:text-red-400 transition-colors"
+                        className="p-1 hover:bg-surface-overlay rounded text-ink-faint hover:text-danger transition-colors"
                         aria-label={`Delete ${key}`}
                         title="Delete entry"
                       >
@@ -299,7 +299,7 @@ export default function BlackboardRunView({
                       </button>
                     </div>
                   </div>
-                  <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words">
+                  <pre className="text-xs text-ink-muted whitespace-pre-wrap break-words">
                     {typeof entry?.value === 'string' ? entry.value : JSON.stringify(entry?.value, null, 2)}
                   </pre>
                 </div>

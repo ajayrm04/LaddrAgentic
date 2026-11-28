@@ -1,8 +1,30 @@
-import { useState, useEffect, useRef } from 'react';
-import { Terminal, Download, Trash2, Play, Pause, Search, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import clsx from 'clsx';
+import {
+  Terminal,
+  Download,
+  Trash2,
+  Play,
+  Pause,
+  Search,
+  RefreshCw,
+  Globe,
+  Cpu,
+  Database,
+  Package,
+  type LucideIcon,
+} from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { getWebSocketBaseUrl } from '../lib/config';
+import {
+  Card,
+  CardHeader,
+  PageHeader,
+  Badge,
+  Skeleton,
+  type BadgeTone,
+} from '../components/ui';
 
 interface ContainerInfo {
   id: string;
@@ -28,6 +50,57 @@ interface ContainerLogs {
   total: number;
 }
 
+/** Hard cap on log lines held in state / rendered to the DOM (keeps tail behavior). */
+const MAX_LOG_LINES = 1000;
+
+/** Container type → icon (no emoji in UI). */
+const TYPE_ICONS: Record<ContainerInfo['type'], LucideIcon> = {
+  api: Globe,
+  worker: Cpu,
+  infrastructure: Database,
+  other: Package,
+};
+
+const TYPE_TONES: Record<ContainerInfo['type'], BadgeTone> = {
+  api: 'primary',
+  worker: 'info',
+  infrastructure: 'neutral',
+  other: 'neutral',
+};
+
+const STATUS_TONES: Record<string, BadgeTone> = {
+  running: 'success',
+  exited: 'danger',
+  paused: 'warning',
+};
+
+const CONTROL_INPUT =
+  'input h-9 py-0 text-xs sm:text-sm';
+
+/** Wrap search matches in <mark> without touching the rest of the line. */
+function highlightMatches(text: string, term: string): ReactNode {
+  const query = term.trim().toLowerCase();
+  if (!query || !text) return text;
+
+  const lower = text.toLowerCase();
+  const nodes: ReactNode[] = [];
+  let last = 0;
+  let idx = lower.indexOf(query);
+
+  while (idx !== -1) {
+    if (idx > last) nodes.push(text.slice(last, idx));
+    nodes.push(
+      <mark key={idx} className="rounded-sm bg-primary-400/25 text-inherit">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+    );
+    last = idx + query.length;
+    idx = lower.indexOf(query, last);
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
 export default function Logs() {
   const [selectedContainer, setSelectedContainer] = useState<string>('');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -41,7 +114,11 @@ export default function Logs() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
   // Fetch list of containers
-  const { data: containersData, refetch: refetchContainers } = useQuery({
+  const {
+    data: containersData,
+    refetch: refetchContainers,
+    isLoading: isLoadingContainers,
+  } = useQuery({
     queryKey: ['containers'],
     queryFn: async () => {
       const response = await api.get('/api/logs/containers');
@@ -89,7 +166,13 @@ export default function Logs() {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'log') {
-        setWsLogs((prev) => [...prev, data.data]);
+        setWsLogs((prev) => {
+          const next = [...prev, data.data];
+          // Keep only the newest lines so the DOM never grows unbounded.
+          return next.length > MAX_LOG_LINES
+            ? next.slice(next.length - MAX_LOG_LINES)
+            : next;
+        });
       } else if (data.type === 'connected') {
         console.log('Connected to container:', data.data);
       } else if (data.type === 'error') {
@@ -120,13 +203,16 @@ export default function Logs() {
   }, [logsData, wsLogs, autoScroll]);
 
   const displayLogs = isStreaming ? wsLogs : (logsData?.logs || []);
-  
+
   // Filter logs by search term
   const filteredLogs = searchTerm
     ? displayLogs.filter((log) =>
         log.message.toLowerCase().includes(searchTerm.toLowerCase())
       )
     : displayLogs;
+
+  // Never render more than MAX_LOG_LINES rows (tail keeps the newest entries)
+  const visibleLogs = filteredLogs.slice(-MAX_LOG_LINES);
 
   // Filter containers by type
   const filteredContainers = containersData?.containers.filter((c) => {
@@ -155,45 +241,6 @@ export default function Logs() {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'running':
-        return 'text-green-400 bg-green-400/10';
-      case 'exited':
-        return 'text-red-400 bg-red-400/10';
-      case 'paused':
-        return 'text-yellow-400 bg-yellow-400/10';
-      default:
-        return 'text-gray-400 bg-gray-400/10';
-    }
-  };
-
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'api':
-        return '🌐';
-      case 'worker':
-        return '⚙️';
-      case 'infrastructure':
-        return '🗄️';
-      default:
-        return '📦';
-    }
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'api':
-        return 'text-blue-400 bg-blue-400/10';
-      case 'worker':
-        return 'text-purple-400 bg-purple-400/10';
-      case 'infrastructure':
-        return 'text-gray-400 bg-gray-400/10';
-      default:
-        return 'text-gray-500 bg-gray-500/10';
-    }
-  };
-
   const formatTimestamp = (timestamp: string) => {
     if (!timestamp) return '';
     try {
@@ -208,89 +255,77 @@ export default function Logs() {
   };
 
   return (
-    <div className="space-y-6 bg-[#191A1A] min-h-screen p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-[#1F2121] rounded-lg">
-            <Terminal className="w-7 h-7 text-[#1FB8CD]" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-white">Container Logs</h1>
-            <p className="text-sm text-gray-400">
-              View logs from Docker containers • API & Workers
-            </p>
-          </div>
-        </div>
+    <div className="space-y-6">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-400/10 text-primary-400">
+              <Terminal className="h-5 w-5" />
+            </span>
+            Container Logs
+          </span>
+        }
+        description="View logs from Docker containers — API and worker services."
+        actions={
+          <>
+            {selectedContainer && (
+              <>
+                <button
+                  onClick={() => setIsStreaming(!isStreaming)}
+                  className={isStreaming ? 'btn-danger' : 'btn-primary'}
+                >
+                  {isStreaming ? (
+                    <>
+                      <Pause className="h-4 w-4" /> Stop Stream
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4" /> Live Stream
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={downloadLogs}
+                  disabled={filteredLogs.length === 0}
+                  className="btn-secondary"
+                >
+                  <Download className="h-4 w-4" />
+                  Download
+                </button>
+                <button
+                  onClick={clearLogs}
+                  disabled={filteredLogs.length === 0}
+                  className="btn-secondary"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Clear
+                </button>
+              </>
+            )}
+            <button onClick={() => refetchContainers()} className="btn-secondary">
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-2">
-          {selectedContainer && (
-            <>
-              <button
-                onClick={() => setIsStreaming(!isStreaming)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                  isStreaming
-                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/50'
-                    : 'bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/50'
-                }`}
-              >
-                {isStreaming ? (
-                  <>
-                    <Pause className="w-4 h-4" />
-                    Stop Stream
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4" />
-                    Live Stream
-                  </>
-                )}
-              </button>
-              <button
-                onClick={downloadLogs}
-                disabled={filteredLogs.length === 0}
-                className="flex items-center gap-2 px-4 py-2 bg-[#1F2121] border border-gray-800 rounded-lg text-sm text-gray-400 hover:text-white hover:border-[#1FB8CD] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Download className="w-4 h-4" />
-                Download
-              </button>
-              <button
-                onClick={clearLogs}
-                disabled={filteredLogs.length === 0}
-                className="flex items-center gap-2 px-4 py-2 bg-[#1F2121] border border-gray-800 rounded-lg text-sm text-gray-400 hover:text-white hover:border-[#1FB8CD] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Trash2 className="w-4 h-4" />
-                Clear
-              </button>
-            </>
-          )}
-          <button
-            onClick={() => refetchContainers()}
-            className="flex items-center gap-2 px-4 py-2 bg-[#1F2121] border border-gray-800 rounded-lg text-sm text-gray-400 hover:text-white hover:border-[#1FB8CD] transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-6">
         {/* Containers List */}
         <div className="lg:col-span-1">
-          <div className="bg-[#1F2121] rounded-lg border border-gray-800 overflow-hidden">
-            <div className="bg-[#191A1A] px-4 py-3 border-b border-gray-800">
-              <h2 className="text-sm font-medium text-white">Containers</h2>
-              <p className="text-xs text-gray-500 mt-1">
-                {filteredContainers.length} of {containersData?.total || 0}
-              </p>
-            </div>
+          <Card className="overflow-hidden">
+            <CardHeader
+              title="Containers"
+              subtitle={`${filteredContainers.length} of ${containersData?.total ?? 0}`}
+            />
 
             {/* Type Filter */}
-            <div className="p-3 border-b border-gray-800">
+            <div className="border-b border-line p-3">
               <select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
-                className="w-full bg-[#191A1A] border border-gray-800 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#1FB8CD]"
+                aria-label="Filter containers by type"
+                className={CONTROL_INPUT}
               >
                 <option value="all">All Types</option>
                 <option value="api">API</option>
@@ -299,96 +334,106 @@ export default function Logs() {
               </select>
             </div>
 
-            <div className="max-h-[600px] overflow-y-auto">
-              {filteredContainers.length === 0 ? (
-                <div className="p-4 text-center text-gray-500 text-sm">
+            <div className="max-h-[45vh] overflow-y-auto lg:max-h-[64vh]">
+              {isLoadingContainers ? (
+                <div className="space-y-2 p-3" aria-hidden>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="h-16" />
+                  ))}
+                </div>
+              ) : filteredContainers.length === 0 ? (
+                <div className="p-6 text-center text-sm text-ink-subtle">
                   No containers found
                 </div>
               ) : (
-                <div className="divide-y divide-gray-800">
-                  {filteredContainers.map((container) => (
-                    <button
-                      key={container.id}
-                      onClick={() => {
-                        setSelectedContainer(container.name);
-                        setIsStreaming(false);
-                        setSearchTerm('');
-                      }}
-                      className={`w-full p-3 text-left hover:bg-[#252525] transition-colors ${
-                        selectedContainer === container.name
-                          ? 'bg-[#1FB8CD]/10 border-l-2 border-[#1FB8CD]'
-                          : ''
-                      }`}
-                    >
-                      <div className="flex items-start gap-2">
-                        <span className="text-lg">{getTypeIcon(container.type)}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span
-                              className={`text-xs px-1.5 py-0.5 rounded font-medium ${getTypeColor(
-                                container.type
-                              )}`}
-                            >
-                              {container.type}
-                            </span>
-                            <span
-                              className={`text-xs px-1.5 py-0.5 rounded font-medium ${getStatusColor(
-                                container.status
-                              )}`}
-                            >
-                              {container.status}
-                            </span>
+                <div className="divide-y divide-line">
+                  {filteredContainers.map((container) => {
+                    const selected = selectedContainer === container.name;
+                    const TypeIcon =
+                      TYPE_ICONS[container.type] ?? Package;
+                    return (
+                      <button
+                        key={container.id}
+                        onClick={() => {
+                          setSelectedContainer(container.name);
+                          setIsStreaming(false);
+                          setSearchTerm('');
+                        }}
+                        aria-current={selected || undefined}
+                        className={clsx(
+                          'group w-full border-l-2 p-3 text-left transition-colors duration-150',
+                          selected
+                            ? 'border-primary-400 bg-primary-400/5'
+                            : 'border-transparent hover:bg-surface-overlay'
+                        )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-overlay text-ink-muted transition-colors group-hover:text-primary-400">
+                            <TypeIcon className="h-4 w-4" strokeWidth={1.75} />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                              <Badge tone={TYPE_TONES[container.type] ?? 'neutral'}>
+                                {container.type}
+                              </Badge>
+                              <Badge
+                                tone={STATUS_TONES[container.status.toLowerCase()] ?? 'neutral'}
+                                dot
+                              >
+                                {container.status}
+                              </Badge>
+                            </div>
+                            <p className="truncate text-sm font-medium text-ink">
+                              {container.service_name}
+                            </p>
+                            <p className="truncate text-xs text-ink-subtle">
+                              {container.name}
+                            </p>
                           </div>
-                          <p className="text-sm text-white font-medium truncate">
-                            {container.service_name}
-                          </p>
-                          <p className="text-xs text-gray-500 truncate">
-                            {container.name}
-                          </p>
                         </div>
-                      </div>
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
-          </div>
+          </Card>
         </div>
 
         {/* Logs Display */}
         <div className="lg:col-span-3">
-          <div className="bg-[#1F2121] rounded-lg border border-gray-800 overflow-hidden">
-            {/* Logs Header */}
-            <div className="bg-[#191A1A] px-4 py-3 border-b border-gray-800">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium text-white">
-                    {selectedContainer || 'No container selected'}
-                  </span>
-                  {isStreaming && (
-                    <span className="flex items-center gap-1.5 text-xs text-green-400">
-                      <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                      Live
-                    </span>
-                  )}
-                </div>
-                <span className="text-xs text-gray-500">
-                  {filteredLogs.length} lines
-                  {searchTerm && ` (filtered from ${displayLogs.length})`}
-                </span>
-              </div>
-            </div>
+          <Card className="overflow-hidden">
+            <CardHeader
+              title={selectedContainer || 'No container selected'}
+              subtitle={`${filteredLogs.length} lines${
+                searchTerm ? ` (filtered from ${displayLogs.length})` : ''
+              }`}
+              action={
+                isStreaming ? (
+                  <Badge tone="success" dot className="[&_>span]:animate-pulse">
+                    Live
+                  </Badge>
+                ) : selectedContainer ? (
+                  <Badge tone="neutral">Paused</Badge>
+                ) : (
+                  <Badge tone="neutral">Idle</Badge>
+                )
+              }
+            />
 
             {/* Logs Controls */}
             {selectedContainer && (
-              <div className="bg-[#1A1B1B] px-4 py-2 border-b border-gray-800 flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface-raised px-4 py-3">
                 {!isStreaming && (
                   <>
-                    <label className="text-xs text-gray-400">Lines:</label>
+                    <label htmlFor="log-tail" className="text-xs text-ink-muted">
+                      Lines
+                    </label>
                     <select
+                      id="log-tail"
                       value={tail}
                       onChange={(e) => setTail(Number(e.target.value))}
-                      className="bg-[#191A1A] border border-gray-800 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-[#1FB8CD]"
+                      className={clsx(CONTROL_INPUT, 'w-auto')}
                     >
                       <option value={50}>50</option>
                       <option value={100}>100</option>
@@ -399,25 +444,24 @@ export default function Logs() {
                   </>
                 )}
 
-                <div className="flex-1">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                    <input
-                      type="text"
-                      placeholder="Search logs..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full bg-[#191A1A] border border-gray-800 rounded pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#1FB8CD]"
-                    />
-                  </div>
+                <div className="relative min-w-[180px] flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+                  <input
+                    type="text"
+                    placeholder="Search logs..."
+                    aria-label="Search logs"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className={clsx(CONTROL_INPUT, 'pl-9')}
+                  />
                 </div>
 
-                <label className="flex items-center gap-2 text-xs text-gray-400">
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-muted">
                   <input
                     type="checkbox"
                     checked={autoScroll}
                     onChange={(e) => setAutoScroll(e.target.checked)}
-                    className="rounded border-gray-800 bg-[#191A1A] text-[#1FB8CD] focus:ring-[#1FB8CD] focus:ring-offset-0"
+                    className="h-4 w-4 rounded border-line bg-surface-raised accent-primary-400"
                   />
                   Auto-scroll
                 </label>
@@ -427,14 +471,16 @@ export default function Logs() {
             {/* Logs Content */}
             <div
               ref={logsContainerRef}
-              className="h-[600px] overflow-y-auto bg-[#0A0A0A] font-mono text-xs terminal-scroll"
+              className="h-[45vh] overflow-y-auto bg-canvas font-mono text-xs terminal-scroll lg:h-[64vh]"
             >
               {isLoadingLogs ? (
-                <div className="flex items-center justify-center h-full text-gray-500">
-                  Loading logs...
+                <div className="space-y-2 p-4" aria-label="Loading logs" role="status">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <Skeleton key={i} className="h-3.5" />
+                  ))}
                 </div>
-              ) : filteredLogs.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-gray-500">
+              ) : visibleLogs.length === 0 ? (
+                <div className="flex h-full items-center justify-center px-4 text-center text-sm text-ink-subtle">
                   {selectedContainer
                     ? searchTerm
                       ? 'No logs match your search'
@@ -443,18 +489,18 @@ export default function Logs() {
                 </div>
               ) : (
                 <div className="p-4">
-                  {filteredLogs.map((log, index) => (
+                  {visibleLogs.map((log, index) => (
                     <div
                       key={index}
-                      className="flex gap-3 py-0.5 hover:bg-[#1F2121]/30 group"
+                      className="flex gap-3 py-0.5 transition-colors hover:bg-surface-raised/40"
                     >
                       {log.timestamp && (
-                        <span className="text-gray-600 select-none shrink-0 font-medium">
+                        <span className="shrink-0 select-none font-medium text-ink-faint">
                           {formatTimestamp(log.timestamp)}
                         </span>
                       )}
-                      <span className="text-gray-300 break-all leading-relaxed">
-                        {log.message}
+                      <span className="break-all leading-relaxed text-ink-muted">
+                        {highlightMatches(log.message, searchTerm)}
                       </span>
                     </div>
                   ))}
@@ -462,7 +508,7 @@ export default function Logs() {
                 </div>
               )}
             </div>
-          </div>
+          </Card>
         </div>
       </div>
     </div>

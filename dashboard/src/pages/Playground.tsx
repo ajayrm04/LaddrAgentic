@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
 import { format } from 'date-fns';
 import {
   Play,
@@ -14,10 +15,12 @@ import {
   StopCircle,
   GitBranch,
   FileText,
-  
+  Copy,
+  Loader2,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import BlackboardRunView from "../components/BlackboardRunView";
+import { Card, CardBody, CardHeader, PageHeader } from "../components/ui";
 import { useAgents } from "../lib/queries/agents";
 import {
   useRunPlayground,
@@ -124,6 +127,44 @@ function normalizeOutcome(value: any): { answer: any; error: string | null } {
   return { answer, error };
 }
 
+const MODE_OPTIONS = [
+  { id: "single", label: "Single Agent", hint: "Run with one agent" },
+  { id: "sequential", label: "Sequential Run", hint: "Chain multiple agents" },
+  {
+    id: "blackboard",
+    label: "Blackboard Run",
+    hint: "Agents collaborate via shared state (parallel)",
+  },
+] as const;
+
+/** Small copy-to-clipboard control used across output blocks. */
+function CopyButton({ text, className }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className={clsx("btn-ghost h-7 px-2 text-xs", className)}
+      aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
+      title="Copy to clipboard"
+    >
+      <Copy className="h-3.5 w-3.5" />
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
 function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
   const hasChildren = span.children && span.children.length > 0;
 
@@ -131,15 +172,15 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
   const getIcon = () => {
     switch (span.type) {
       case "agent":
-        return <Activity className="w-4 h-4 text-cyan-400" />;
+        return <Activity className="w-4 h-4 text-primary-400" />;
       case "tool":
-        return <Code className="w-4 h-4 text-purple-400" />;
+        return <Code className="w-4 h-4 text-info" />;
       case "llm":
-        return <Brain className="w-4 h-4 text-green-400" />;
+        return <Brain className="w-4 h-4 text-success" />;
       case "reasoning":
-        return <Database className="w-4 h-4 text-yellow-400" />;
+        return <Database className="w-4 h-4 text-warning" />;
       default:
-        return <div className="w-4 h-4 rounded-full bg-gray-600" />;
+        return <div className="w-4 h-4 rounded-full bg-surface-overlay" />;
     }
   };
 
@@ -151,10 +192,10 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
   };
 
   return (
-    <div className="border-b border-gray-800">
+    <div className="border-b border-line">
       {/* Main row */}
       <div
-        className="flex items-center gap-3 py-3 px-4 hover:bg-[#1F2121] cursor-pointer transition-colors"
+        className="flex items-center gap-3 py-3 px-4 hover:bg-surface-raised cursor-pointer transition-colors"
         style={{ paddingLeft: `${depth * 24 + 16}px` }}
         onClick={onToggle}
       >
@@ -162,9 +203,9 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
         <div className="w-4 h-4 flex-shrink-0">
           {hasChildren &&
             (isExpanded ? (
-              <ChevronDown className="w-4 h-4 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-ink-subtle" />
             ) : (
-              <ChevronRight className="w-4 h-4 text-gray-400" />
+              <ChevronRight className="w-4 h-4 text-ink-subtle" />
             ))}
         </div>
 
@@ -174,29 +215,29 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
         {/* Name */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-white truncate">
+            <span className="text-sm font-medium text-ink truncate">
               {span.name}
             </span>
-            <span className="text-xs text-gray-500">{span.type}</span>
+            <span className="text-xs text-ink-faint">{span.type}</span>
           </div>
         </div>
 
         {/* Metrics */}
         <div className="flex items-center gap-4 flex-shrink-0">
           {span.metadata.tokens && (
-            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+            <div className="flex items-center gap-1.5 text-xs text-ink-subtle">
               <Zap className="w-3.5 h-3.5" />
               <span>{fmtNumber(span.metadata.tokens)}</span>
             </div>
           )}
           {span.metadata.duration_ms && (
-            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+            <div className="flex items-center gap-1.5 text-xs text-ink-subtle">
               <Clock className="w-3.5 h-3.5" />
               <span>{formatDuration(span.metadata.duration_ms)}</span>
             </div>
           )}
           {span.metadata.cost && (
-            <div className="text-xs text-gray-400">
+            <div className="text-xs text-ink-subtle">
               ${span.metadata.cost.toFixed(4)}
             </div>
           )}
@@ -206,53 +247,53 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
       {/* Expanded details */}
       {isExpanded && (
         <div
-          className="bg-[#0D0E0E] px-4 py-3 border-t border-gray-800"
+          className="bg-canvas px-4 py-3 border-t border-line"
           style={{ paddingLeft: `${depth * 24 + 16}px` }}
         >
           <div className="space-y-3 text-sm">
             {/* For llm_usage - show provider, model, token details */}
             {span.event_type === "llm_usage" && span.metadata && (
               <div>
-                <div className="text-xs font-semibold text-gray-400 mb-1">
+                <div className="text-xs font-semibold text-ink-subtle mb-1">
                   LLM Usage
                 </div>
-                <div className="bg-[#191A1A] rounded p-2 text-xs border border-gray-800 space-y-1">
+                <div className="bg-surface rounded p-2 text-xs border border-line space-y-1">
                   {span.metadata.provider && (
                     <div>
-                      <span className="text-gray-500">Provider:</span>
-                      <span className="ml-2 text-gray-300">
+                      <span className="text-ink-faint">Provider:</span>
+                      <span className="ml-2 text-ink-muted">
                         {span.metadata.provider}
                       </span>
                     </div>
                   )}
                   {span.metadata.model && (
                     <div>
-                      <span className="text-gray-500">Model:</span>
-                      <span className="ml-2 text-gray-300">
+                      <span className="text-ink-faint">Model:</span>
+                      <span className="ml-2 text-ink-muted">
                         {span.metadata.model}
                       </span>
                     </div>
                   )}
                   {span.metadata.prompt_tokens !== undefined && (
                     <div>
-                      <span className="text-gray-500">Prompt Tokens:</span>
-                      <span className="ml-2 text-gray-300">
+                      <span className="text-ink-faint">Prompt Tokens:</span>
+                      <span className="ml-2 text-ink-muted">
                         {fmtNumber(span.metadata.prompt_tokens)}
                       </span>
                     </div>
                   )}
                   {span.metadata.completion_tokens !== undefined && (
                     <div>
-                      <span className="text-gray-500">Completion Tokens:</span>
-                      <span className="ml-2 text-gray-300">
+                      <span className="text-ink-faint">Completion Tokens:</span>
+                      <span className="ml-2 text-ink-muted">
                         {fmtNumber(span.metadata.completion_tokens)}
                       </span>
                     </div>
                   )}
                   {span.metadata.total_tokens !== undefined && (
                     <div>
-                      <span className="text-gray-500">Total Tokens:</span>
-                      <span className="ml-2 text-cyan-400 font-semibold">
+                      <span className="text-ink-faint">Total Tokens:</span>
+                      <span className="ml-2 text-primary-400 font-semibold">
                         {fmtNumber(span.metadata.total_tokens)}
                       </span>
                     </div>
@@ -267,9 +308,9 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
                 {span.metadata.response && (
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <div className="text-xs font-semibold text-gray-400">
+                      <div className="text-xs font-semibold text-ink-subtle">
                         Reasoning Response
-                        <span className="ml-2 text-gray-500 font-normal">
+                        <span className="ml-2 text-ink-faint font-normal">
                           (
                           {typeof span.metadata.response === "string"
                             ? span.metadata.response.length.toLocaleString()
@@ -279,21 +320,16 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
                           chars)
                         </span>
                       </div>
-                      <button
-                        onClick={() => {
-                          const text =
-                            typeof span.metadata.response === "string"
-                              ? span.metadata.response
-                              : JSON.stringify(span.metadata.response, null, 2);
-                          navigator.clipboard.writeText(text);
-                        }}
-                        className="text-xs px-2 py-1 bg-[#1FB8CD]/10 hover:bg-[#1FB8CD]/20 text-[#1FB8CD] rounded border border-[#1FB8CD]/30 transition-colors"
-                      >
-                        Copy
-                      </button>
+                      <CopyButton
+                        text={
+                          typeof span.metadata.response === "string"
+                            ? span.metadata.response
+                            : JSON.stringify(span.metadata.response, null, 2)
+                        }
+                      />
                     </div>
-                    <div className="bg-[#191A1A] rounded p-3 border border-gray-800 max-h-96 overflow-y-auto">
-                      <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words">
+                    <div className="bg-surface rounded p-3 border border-line max-h-96 overflow-y-auto">
+                      <pre className="text-xs text-ink-muted whitespace-pre-wrap break-words">
                         {typeof span.metadata.response === "string"
                           ? span.metadata.response
                           : JSON.stringify(span.metadata.response, null, 2)}
@@ -302,15 +338,15 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
                   </div>
                 )}
                 {span.metadata.iteration !== undefined && (
-                  <div className="bg-[#191A1A] rounded p-2 text-xs border border-gray-800 mt-2">
-                    <span className="text-gray-500">Iteration:</span>
-                    <span className="ml-2 text-gray-300">
+                  <div className="bg-surface rounded p-2 text-xs border border-line mt-2">
+                    <span className="text-ink-faint">Iteration:</span>
+                    <span className="ml-2 text-ink-muted">
                       {span.metadata.iteration}
                     </span>
                     {span.metadata.duration_ms && (
                       <>
-                        <span className="text-gray-500 ml-4">Duration:</span>
-                        <span className="ml-2 text-gray-300">
+                        <span className="text-ink-faint ml-4">Duration:</span>
+                        <span className="ml-2 text-ink-muted">
                           {(span.metadata.duration_ms / 1000).toFixed(2)}s
                         </span>
                       </>
@@ -326,10 +362,10 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
               span.input &&
               Object.keys(span.input).length > 0 && (
                 <div>
-                  <div className="text-xs font-semibold text-gray-400 mb-1">
+                  <div className="text-xs font-semibold text-ink-subtle mb-1">
                     Input
                   </div>
-                  <pre className="bg-[#191A1A] rounded p-2 text-xs text-gray-300 overflow-x-auto border border-gray-800">
+                  <pre className="bg-surface rounded p-2 text-xs text-ink-muted overflow-x-auto border border-line">
                     {JSON.stringify(span.input, null, 2)}
                   </pre>
                 </div>
@@ -340,10 +376,10 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
               span.event_type !== "autonomous_think" &&
               span.output && (
                 <div>
-                  <div className="text-xs font-semibold text-gray-400 mb-1">
+                  <div className="text-xs font-semibold text-ink-subtle mb-1">
                     Output
                   </div>
-                  <pre className="bg-[#191A1A] rounded p-2 text-xs text-gray-300 overflow-x-auto border border-gray-800">
+                  <pre className="bg-surface rounded p-2 text-xs text-ink-muted overflow-x-auto border border-line">
                     {JSON.stringify(span.output, null, 2)}
                   </pre>
                 </div>
@@ -351,21 +387,21 @@ function SpanRow({ span, depth, isExpanded, onToggle }: SpanRowProps) {
 
             {/* Metadata */}
             <div>
-              <div className="text-xs font-semibold text-gray-400 mb-1">
+              <div className="text-xs font-semibold text-ink-subtle mb-1">
                 Metadata
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
-                  <span className="text-gray-500">Agent:</span>
-                  <span className="ml-2 text-gray-300">{span.agent}</span>
+                  <span className="text-ink-faint">Agent:</span>
+                  <span className="ml-2 text-ink-muted">{span.agent}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500">Event:</span>
-                  <span className="ml-2 text-gray-300">{span.event_type}</span>
+                  <span className="text-ink-faint">Event:</span>
+                  <span className="ml-2 text-ink-muted">{span.event_type}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500">Time:</span>
-                  <span className="ml-2 text-gray-300">
+                  <span className="text-ink-faint">Time:</span>
+                  <span className="ml-2 text-ink-muted">
                     {new Date(span.start_time).toLocaleTimeString()}
                   </span>
                 </div>
@@ -501,6 +537,27 @@ export default function Playground() {
     }
   };
 
+  // Full-screen trace overlay: Escape closes it and the page behind it is
+  // kept from scrolling while the overlay is open.
+  const traceOverlayOpen = Boolean(showTraces && activePlaygroundId);
+
+  useEffect(() => {
+    if (!traceOverlayOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") handleCloseTraces();
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [traceOverlayOpen, isComplete]);
+
   // Extract spans from traces (WebSocket sends hierarchical structure)
   // Handle both [{spans: [...]}] format and direct spans array
   const spans: Span[] = (() => {
@@ -623,14 +680,14 @@ export default function Playground() {
 
   const getEventTypeColor = (eventType: string) => {
     const colors: Record<string, string> = {
-      agent_start: "text-blue-400",
-      agent_end: "text-green-400",
-      tool_call: "text-yellow-400",
-      tool_result: "text-purple-400",
-      delegation: "text-orange-400",
-      error: "text-red-400",
+      agent_start: "text-primary-400",
+      agent_end: "text-success",
+      tool_call: "text-warning",
+      tool_result: "text-info",
+      delegation: "text-primary-300",
+      error: "text-danger",
     };
-    return colors[eventType] || "text-gray-400";
+    return colors[eventType] || "text-ink-muted";
   };
 
   function TraceNodeRow({
@@ -650,7 +707,7 @@ export default function Playground() {
         <div className="flex flex-col">
           <div
             className={`flex items-center gap-3 rounded px-4 py-3 transition-colors ${
-              depth === 0 ? "" : "bg-gray-900/5"
+              depth === 0 ? "" : "bg-canvas/5"
             }`}
             style={{ paddingLeft: `${depth * 24}px` }}
           >
@@ -661,13 +718,13 @@ export default function Playground() {
                   e.stopPropagation();
                   setIsExpanded(!isExpanded);
                 }}
-                className="p-1 rounded hover:bg-gray-800/30"
+                className="p-1 rounded hover:bg-surface-overlay/30"
                 aria-label={isExpanded ? "Collapse details" : "Expand details"}
               >
                 {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-gray-300" />
+                  <ChevronDown className="w-4 h-4 text-ink-muted" />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-gray-500" />
+                  <ChevronRight className="w-4 h-4 text-ink-faint" />
                 )}
               </button>
             </div>
@@ -681,27 +738,27 @@ export default function Playground() {
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <div className="text-sm font-medium text-white">{ev.event_type}</div>
-                              <div className="text-xs text-gray-400">{ev.agent || '-'}</div>
+                              <div className="text-sm font-medium text-ink">{ev.event_type}</div>
+                              <div className="text-xs text-ink-subtle">{ev.agent || '-'}</div>
                             </div>
-                            <div className="text-xs text-gray-500">{ev.start_time ? format(new Date(ev.start_time), 'HH:mm:ss.SSS') : ''}</div>
+                            <div className="text-xs text-ink-faint">{ev.start_time ? format(new Date(ev.start_time), 'HH:mm:ss.SSS') : ''}</div>
                           </div>
 
-                          <div className="text-xs text-gray-400 mt-2 flex items-center gap-3">
+                          <div className="text-xs text-ink-subtle mt-2 flex items-center gap-3">
                             {ev.event_type === 'tool_call' && (ev.payload?.tool || ev.metadata?.tool || ev.metadata?.params?.tool) && (
-                              <span className="px-2 py-0.5 bg-gray-800 rounded">Tool: {ev.payload?.tool ?? ev.metadata?.tool ?? ev.metadata?.params?.tool}</span>
+                              <span className="px-2 py-0.5 bg-surface-overlay rounded">Tool: {ev.payload?.tool ?? ev.metadata?.tool ?? ev.metadata?.params?.tool}</span>
                             )}
                             {ev.event_type === 'tool_result' && (ev.payload?.tool || ev.metadata?.tool || ev.metadata?.params?.tool) && (
-                              <span className="px-2 py-0.5 bg-gray-800 rounded">{ev.payload?.tool ?? ev.metadata?.tool ?? ev.metadata?.params?.tool}{ev.payload?.status ? ` - ${ev.payload.status}` : ''}</span>
+                              <span className="px-2 py-0.5 bg-surface-overlay rounded">{ev.payload?.tool ?? ev.metadata?.tool ?? ev.metadata?.params?.tool}{ev.payload?.status ? ` - ${ev.payload.status}` : ''}</span>
                             )}
                             {ev.event_type === 'delegation' && (ev.payload?.target_agent || ev.metadata?.target_agent || ev.input?.target_agent) && (
-                              <span className="px-2 py-0.5 bg-gray-800 rounded">→ {ev.payload?.target_agent ?? ev.metadata?.target_agent ?? ev.input?.target_agent}</span>
+                              <span className="px-2 py-0.5 bg-surface-overlay rounded">→ {ev.payload?.target_agent ?? ev.metadata?.target_agent ?? ev.input?.target_agent}</span>
                             )}
                             {ev.event_type === 'llm_usage' && (
                               <>
-                                <span className="px-2 py-0.5 bg-cyan-400/10 text-cyan-300 rounded font-medium">{ev.metadata.model || 'model'}</span>
-                                <span className="text-gray-400">{fmtNumber(ev.metadata?.prompt_tokens ?? 0)} in</span>
-                                <span className="text-gray-400">/ {fmtNumber(ev.metadata?.completion_tokens ?? 0)} out</span>
+                                <span className="px-2 py-0.5 bg-primary-400/10 text-primary-300 rounded font-medium">{ev.metadata.model || 'model'}</span>
+                                <span className="text-ink-subtle">{fmtNumber(ev.metadata?.prompt_tokens ?? 0)} in</span>
+                                <span className="text-ink-subtle">/ {fmtNumber(ev.metadata?.completion_tokens ?? 0)} out</span>
                               </>
                             )}
                           </div>
@@ -711,45 +768,45 @@ export default function Playground() {
           {/* Inline expanded details (payload / metadata / input / output) - hidden when collapsed */}
           {isExpanded && (
             <div
-              className="bg-[#0D0E0E] px-4 py-3 border-t border-gray-800"
+              className="bg-canvas px-4 py-3 border-t border-line"
               style={{ paddingLeft: `${depth * 24 + 16}px` }}
             >
               <div className="space-y-3 text-sm">
                 {/* For llm_usage - show provider, model, token details */}
                 {ev.event_type === "llm_usage" && ev.metadata && (
                   <div>
-                    <div className="text-xs font-semibold text-gray-400 mb-1">
+                    <div className="text-xs font-semibold text-ink-subtle mb-1">
                       LLM Usage
                     </div>
-                    <div className="bg-[#191A1A] rounded p-2 text-xs border border-gray-800 space-y-1">
+                    <div className="bg-surface rounded p-2 text-xs border border-line space-y-1">
                       {ev.metadata.provider && (
                         <div>
-                          <span className="text-gray-500">Provider:</span>
-                          <span className="ml-2 text-gray-300">{ev.metadata.provider}</span>
+                          <span className="text-ink-faint">Provider:</span>
+                          <span className="ml-2 text-ink-muted">{ev.metadata.provider}</span>
                         </div>
                       )}
                       {ev.metadata.model && (
                         <div>
-                          <span className="text-gray-500">Model:</span>
-                          <span className="ml-2 text-gray-300">{ev.metadata.model}</span>
+                          <span className="text-ink-faint">Model:</span>
+                          <span className="ml-2 text-ink-muted">{ev.metadata.model}</span>
                         </div>
                       )}
                       {ev.metadata.prompt_tokens !== undefined && (
                         <div>
-                          <span className="text-gray-500">Prompt Tokens:</span>
-                          <span className="ml-2 text-gray-300">{fmtNumber(ev.metadata.prompt_tokens)}</span>
+                          <span className="text-ink-faint">Prompt Tokens:</span>
+                          <span className="ml-2 text-ink-muted">{fmtNumber(ev.metadata.prompt_tokens)}</span>
                         </div>
                       )}
                       {ev.metadata.completion_tokens !== undefined && (
                         <div>
-                          <span className="text-gray-500">Completion Tokens:</span>
-                          <span className="ml-2 text-gray-300">{fmtNumber(ev.metadata.completion_tokens)}</span>
+                          <span className="text-ink-faint">Completion Tokens:</span>
+                          <span className="ml-2 text-ink-muted">{fmtNumber(ev.metadata.completion_tokens)}</span>
                         </div>
                       )}
                       {ev.metadata.total_tokens !== undefined && (
                         <div>
-                          <span className="text-gray-500">Total Tokens:</span>
-                          <span className="ml-2 text-cyan-400 font-semibold">{fmtNumber(ev.metadata.total_tokens)}</span>
+                          <span className="text-ink-faint">Total Tokens:</span>
+                          <span className="ml-2 text-primary-400 font-semibold">{fmtNumber(ev.metadata.total_tokens)}</span>
                         </div>
                       )}
                     </div>
@@ -762,28 +819,24 @@ export default function Playground() {
                     {ev.metadata.response && (
                       <div>
                         <div className="flex items-center justify-between mb-1">
-                          <div className="text-xs font-semibold text-gray-400">
+                          <div className="text-xs font-semibold text-ink-subtle">
                             Reasoning Response
-                            <span className="ml-2 text-gray-500 font-normal">(
+                            <span className="ml-2 text-ink-faint font-normal">(
                               {typeof ev.metadata.response === "string"
                                 ? fmtNumber(ev.metadata.response.length)
                                 : fmtNumber(JSON.stringify(ev.metadata.response).length)} chars)
                             </span>
                           </div>
-                          <button
-                            onClick={() => {
-                              const text = typeof ev.metadata.response === "string"
+                          <CopyButton
+                            text={
+                              typeof ev.metadata.response === "string"
                                 ? ev.metadata.response
-                                : JSON.stringify(ev.metadata.response, null, 2);
-                              navigator.clipboard.writeText(text);
-                            }}
-                            className="text-xs px-2 py-1 bg-[#1FB8CD]/10 hover:bg-[#1FB8CD]/20 text-[#1FB8CD] rounded border border-[#1FB8CD]/30 transition-colors"
-                          >
-                            Copy
-                          </button>
+                                : JSON.stringify(ev.metadata.response, null, 2)
+                            }
+                          />
                         </div>
-                        <div className="bg-[#191A1A] rounded p-3 border border-gray-800 max-h-96 overflow-y-auto">
-                          <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words">
+                        <div className="bg-surface rounded p-3 border border-line max-h-96 overflow-y-auto">
+                          <pre className="text-xs text-ink-muted whitespace-pre-wrap break-words">
                             {typeof ev.metadata.response === "string"
                               ? ev.metadata.response
                               : JSON.stringify(ev.metadata.response, null, 2)}
@@ -792,13 +845,13 @@ export default function Playground() {
                       </div>
                     )}
                     {ev.metadata.iteration !== undefined && (
-                      <div className="bg-[#191A1A] rounded p-2 text-xs border border-gray-800 mt-2">
-                        <span className="text-gray-500">Iteration:</span>
-                        <span className="ml-2 text-gray-300">{ev.metadata.iteration}</span>
+                      <div className="bg-surface rounded p-2 text-xs border border-line mt-2">
+                        <span className="text-ink-faint">Iteration:</span>
+                        <span className="ml-2 text-ink-muted">{ev.metadata.iteration}</span>
                         {ev.metadata.duration_ms && (
                           <>
-                            <span className="text-gray-500 ml-4">Duration:</span>
-                            <span className="ml-2 text-gray-300">{(ev.metadata.duration_ms / 1000).toFixed(2)}s</span>
+                            <span className="text-ink-faint ml-4">Duration:</span>
+                            <span className="ml-2 text-ink-muted">{(ev.metadata.duration_ms / 1000).toFixed(2)}s</span>
                           </>
                         )}
                       </div>
@@ -809,34 +862,34 @@ export default function Playground() {
                 {/* Standard Input (for other event types) */}
                 {ev.event_type !== "llm_usage" && ev.event_type !== "autonomous_think" && ev.input && Object.keys(ev.input).length > 0 && (
                   <div>
-                    <div className="text-xs font-semibold text-gray-400 mb-1">Input</div>
-                    <pre className="bg-[#191A1A] rounded p-2 text-xs text-gray-300 overflow-x-auto border border-gray-800">{JSON.stringify(ev.input, null, 2)}</pre>
+                    <div className="text-xs font-semibold text-ink-subtle mb-1">Input</div>
+                    <pre className="bg-surface rounded p-2 text-xs text-ink-muted overflow-x-auto border border-line">{JSON.stringify(ev.input, null, 2)}</pre>
                   </div>
                 )}
 
                 {/* Standard Output (for other event types) */}
                 {ev.event_type !== "llm_usage" && ev.event_type !== "autonomous_think" && (ev.output || ev.metadata.error) && (
                   <div>
-                    <div className="text-xs font-semibold text-gray-400 mb-1">Output</div>
-                    <pre className="bg-[#191A1A] rounded p-2 text-xs text-gray-300 overflow-x-auto border border-gray-800">{JSON.stringify(ev.output || ev.metadata.error, null, 2)}</pre>
+                    <div className="text-xs font-semibold text-ink-subtle mb-1">Output</div>
+                    <pre className="bg-surface rounded p-2 text-xs text-ink-muted overflow-x-auto border border-line">{JSON.stringify(ev.output || ev.metadata.error, null, 2)}</pre>
                   </div>
                 )}
 
                 {/* Metadata */}
                 <div>
-                  <div className="text-xs font-semibold text-gray-400 mb-1">Metadata</div>
+                  <div className="text-xs font-semibold text-ink-subtle mb-1">Metadata</div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
-                      <span className="text-gray-500">Agent:</span>
-                      <span className="ml-2 text-gray-300">{ev.agent || ev.agent_name || '-'}</span>
+                      <span className="text-ink-faint">Agent:</span>
+                      <span className="ml-2 text-ink-muted">{ev.agent || ev.agent_name || '-'}</span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Event:</span>
-                      <span className="ml-2 text-gray-300">{ev.event_type}</span>
+                      <span className="text-ink-faint">Event:</span>
+                      <span className="ml-2 text-ink-muted">{ev.event_type}</span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Time:</span>
-                      <span className="ml-2 text-gray-300">{ev.start_time ? new Date(ev.start_time).toLocaleTimeString() : (ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '')}</span>
+                      <span className="text-ink-faint">Time:</span>
+                      <span className="ml-2 text-ink-muted">{ev.start_time ? new Date(ev.start_time).toLocaleTimeString() : (ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '')}</span>
                     </div>
                   </div>
                 </div>
@@ -864,125 +917,105 @@ export default function Playground() {
   const traceTree = buildTraceTree(spans || []);
 
   return (
-    <div className="h-[calc(100vh-56px)] flex flex-col bg-[#191A1A]">
-      {/* Header */}
-      <div className="flex-none px-6 py-4 border-b border-gray-800">
-        <h1 className="text-2xl font-bold text-white">Playground</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          Test your agents with custom prompts
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Playground"
+        description="Test your agents with custom prompts"
+      />
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex flex-col gap-6 lg:flex-row">
         {/* Left Side - Prompt Input */}
-        <div className="flex-1 flex flex-col border-r border-gray-800">
-          <div className="flex-none px-6 py-4 border-b border-gray-800">
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Prompt / Query
-            </label>
-          </div>
+        <Card className="flex min-w-0 flex-1 flex-col">
+          <CardHeader
+            title="Prompt / Query"
+            subtitle="Describe the task you want the agents to run"
+          />
 
-          <div className="flex-1 p-6">
+          <CardBody className="flex flex-1 flex-col gap-4">
             <textarea
               value={promptText}
               onChange={(e) => setPromptText(e.target.value)}
-              className="w-full h-full bg-[#1F2121] border border-gray-800 rounded-lg px-4 py-3 text-white text-sm resize-none focus:outline-none focus:border-[#1FB8CD] transition-colors"
+              aria-label="Prompt / Query"
+              className="input min-h-[280px] flex-1 resize-none font-mono leading-relaxed lg:min-h-[400px]"
               placeholder="Enter your prompt here...
 
 Example: Research the top 5 programming languages in 2024 and write a comparison report."
             />
-          </div>
 
-          <div className="flex-none px-6 py-4 border-t border-gray-800 flex items-center justify-between">
-            <div className="text-sm text-gray-400">
-              {promptText.length} characters
-            </div>
-            <div className="flex items-center gap-3">
-              {runPlayground.isPending && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="text-xs text-ink-subtle tabular-nums">
+                {promptText.length} characters
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                {runPlayground.isPending && (
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    disabled={cancelPlayground.isPending}
+                    className="btn-secondary"
+                  >
+                    <StopCircle className="h-4 w-4" />
+                    {cancelPlayground.isPending ? "Stopping..." : "Stop"}
+                  </button>
+                )}
                 <button
-                  onClick={handleCancel}
-                  disabled={cancelPlayground.isPending}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  type="button"
+                  onClick={handleRun}
+                  disabled={
+                    runPlayground.isPending ||
+                    !promptText.trim() ||
+                    ((mode === "sequential" || mode === "blackboard") &&
+                      selectedAgents.length < 2)
+                  }
+                  className="btn-primary"
                 >
-                  <StopCircle className="w-4 h-4" />
-                  {cancelPlayground.isPending ? "Canceling..." : "Cancel"}
+                  {runPlayground.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                  {runPlayground.isPending ? "Starting..." : "Run"}
                 </button>
-              )}
-              <button
-                onClick={handleRun}
-                disabled={
-                  runPlayground.isPending ||
-                  !promptText.trim() ||
-                  ((mode === "sequential" || mode === "blackboard") && selectedAgents.length < 2)
-                }
-                className="flex items-center gap-2 px-6 py-2.5 bg-[#1FB8CD] hover:bg-[#1AA5B8] text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <Play className="w-4 h-4" />
-                {runPlayground.isPending ? "Running..." : "Run"}
-              </button>
+              </div>
             </div>
-          </div>
-        </div>
+          </CardBody>
+        </Card>
 
         {/* Right Side - Configuration */}
-        <div className="w-96 flex flex-col bg-[#1A1B1B]">
+        <div className="w-96 flex flex-col bg-surface">
           {/* Mode Selection */}
-          <div className="flex-none px-6 py-4 border-b border-gray-800">
-            <label className="block text-sm font-medium text-gray-300 mb-3">
-              Mode
-            </label>
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 p-3 bg-[#1F2121] border border-gray-800 rounded-lg cursor-pointer hover:border-[#1FB8CD] transition-colors">
-                <input
-                  type="radio"
-                  name="mode"
-                  checked={mode === "single"}
-                  onChange={() => setMode("single")}
-                  className="w-4 h-4 text-[#1FB8CD] focus:ring-[#1FB8CD] focus:ring-offset-0"
-                />
-                <div className="flex-1">
-                  <div className="text-white font-medium">Single Agent</div>
-                  <div className="text-xs text-gray-400">
-                    Run with one agent
-                  </div>
-                </div>
-              </label>
-              <label className="flex items-center gap-3 p-3 bg-[#1F2121] border border-gray-800 rounded-lg cursor-pointer hover:border-[#1FB8CD] transition-colors">
-                <input
-                  type="radio"
-                  name="mode"
-                  checked={mode === "sequential"}
-                  onChange={() => setMode("sequential")}
-                  className="w-4 h-4 text-[#1FB8CD] focus:ring-[#1FB8CD] focus:ring-offset-0"
-                />
-                <div className="flex-1">
-                  <div className="text-white font-medium">Sequential Run</div>
-                  <div className="text-xs text-gray-400">
-                    Chain multiple agents
-                  </div>
-                </div>
-              </label>
-              <label className="flex items-center gap-3 p-3 bg-[#1F2121] border border-gray-800 rounded-lg cursor-pointer hover:border-[#1FB8CD] transition-colors">
-                <input
-                  type="radio"
-                  name="mode"
-                  checked={mode === "blackboard"}
-                  onChange={() => setMode("blackboard")}
-                  className="w-4 h-4 text-[#1FB8CD] focus:ring-[#1FB8CD] focus:ring-offset-0"
-                />
-                <div className="flex-1">
-                  <div className="text-white font-medium">Blackboard Run</div>
-                  <div className="text-xs text-gray-400">
-                    Agents collaborate via shared state (parallel)
-                  </div>
-                </div>
-              </label>
+          <div className="flex-none px-6 py-4 border-b border-line">
+            <div className="caption mb-3">Mode</div>
+            <div className="inline-flex w-full rounded-lg border border-line bg-surface-raised p-1">
+              {MODE_OPTIONS.map((opt) => {
+                const active = mode === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setMode(opt.id as "single" | "sequential" | "blackboard")}
+                    aria-pressed={active}
+                    title={opt.hint}
+                    className={
+                      "flex-1 rounded-md px-2 py-2 text-xs font-medium transition-colors duration-150 " +
+                      (active
+                        ? "bg-surface-overlay text-ink shadow-card"
+                        : "text-ink-subtle hover:text-ink")
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
+            <p className="mt-2 text-xs text-ink-faint">
+              {MODE_OPTIONS.find((o) => o.id === mode)?.hint}
+            </p>
           </div>
 
           {/* Agent Selection */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
-            <label className="block text-sm font-medium text-gray-300 mb-3">
+            <label className="block text-sm font-medium text-ink-muted mb-3">
               {mode === "single" ? "Select Agent" : mode === "blackboard" ? "Select Agents (collaborators)" : "Select Agents (in order)"}
             </label>
 
@@ -994,8 +1027,8 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                       key={agent.name}
                       className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
                         selectedAgent === agent.name
-                          ? "bg-[#1FB8CD]/10 border-[#1FB8CD]"
-                          : "bg-[#1F2121] border-gray-800 hover:border-gray-700"
+                          ? "bg-primary-500/10 border-primary-400"
+                          : "bg-surface-raised border-line hover:border-line-strong"
                       }`}
                     >
                       <input
@@ -1003,13 +1036,13 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                         name="agent"
                         checked={selectedAgent === agent.name}
                         onChange={() => setSelectedAgent(agent.name)}
-                        className="w-4 h-4 text-[#1FB8CD] focus:ring-[#1FB8CD] focus:ring-offset-0"
+                        className="w-4 h-4 text-primary-400 focus:ring-primary-400 focus:ring-offset-0"
                       />
                       <div className="flex-1 min-w-0">
-                        <div className="text-white font-medium">
+                        <div className="text-ink font-medium">
                           {agent.name}
                         </div>
-                        <div className="text-xs text-gray-400 truncate">
+                        <div className="text-xs text-ink-subtle truncate">
                           {agent.role}
                         </div>
                       </div>
@@ -1033,26 +1066,26 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                         key={agent.name}
                         className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
                           isSelected
-                            ? "bg-[#1FB8CD]/10 border-[#1FB8CD]"
-                            : "bg-[#1F2121] border-gray-800 hover:border-gray-700"
+                            ? "bg-primary-500/10 border-primary-400"
+                            : "bg-surface-raised border-line hover:border-line-strong"
                         }`}
                       >
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleAgentSelection(agent.name)}
-                          className="w-4 h-4 text-[#1FB8CD] rounded focus:ring-[#1FB8CD] focus:ring-offset-0"
+                          className="w-4 h-4 text-primary-400 rounded focus:ring-primary-400 focus:ring-offset-0"
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="text-white font-medium">
+                          <div className="text-ink font-medium">
                             {agent.name}
                           </div>
-                          <div className="text-xs text-gray-400 truncate">
+                          <div className="text-xs text-ink-subtle truncate">
                             {agent.role}
                           </div>
                         </div>
                         {order && (
-                          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-[#1FB8CD] text-white text-xs font-bold">
+                          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary-500 text-[#06171A] text-xs font-bold">
                             {order}
                           </div>
                         )}
@@ -1060,11 +1093,11 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                     );
                   })}
                 {selectedAgents.length > 0 && mode !== "blackboard" && (
-                  <div className="mt-3 p-3 bg-[#1F2121] border border-gray-800 rounded-lg">
-                    <div className="text-xs text-gray-400 mb-1">
+                  <div className="mt-3 p-3 bg-surface-raised border border-line rounded-lg">
+                    <div className="text-xs text-ink-subtle mb-1">
                       Execution order:
                     </div>
-                    <div className="text-sm text-white">
+                    <div className="text-sm text-ink">
                       {selectedAgents.join(" → ")}
                     </div>
                   </div>
@@ -1078,18 +1111,18 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
       {/* Live Trace Section */}
       {/* Live Trace Panel - Bottom */}
       {showTraces && activePlaygroundId && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-[#0D0E0E]">
-          <div className="flex-none px-6 py-3 border-b border-gray-800 flex items-center justify-between bg-[#0D0E0E]">
+        <div className="fixed inset-0 z-50 flex flex-col bg-canvas">
+          <div className="flex-none px-6 py-3 border-b border-line flex items-center justify-between bg-canvas">
             <div className="flex items-center gap-3">
-              <h2 className="text-sm font-semibold text-white">Live Trace</h2>
+              <h2 className="text-sm font-semibold text-ink">Live Trace</h2>
               {isConnected && !isComplete && (
-                <span className="flex items-center gap-1.5 text-xs text-cyan-400">
-                  <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
+                <span className="flex items-center gap-1.5 text-xs text-primary-400">
+                  <span className="w-2 h-2 bg-primary-400 rounded-full animate-pulse" />
                   Running
                 </span>
               )}
               {isComplete && (
-                <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400">
+                <span className="text-xs px-2 py-1 rounded bg-success/15 text-success">
                   Completed
                 </span>
               )}
@@ -1101,7 +1134,7 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                 <button
                   onClick={handleCancel}
                   disabled={cancelPlayground.isPending}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-danger-subtle hover:bg-danger/15 text-danger border border-danger-border rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <StopCircle className="w-3.5 h-3.5" />
                   {cancelPlayground.isPending ? "Canceling..." : "Cancel"}
@@ -1110,7 +1143,7 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
 
               {/* Summary Metrics */}
               {spans.length > 0 && (
-                <div className="flex items-center gap-6 text-xs text-gray-400">
+                <div className="flex items-center gap-6 text-xs text-ink-subtle">
                   <div className="flex items-center gap-1.5">
                     <Database className="w-3.5 h-3.5" />
                     <span>{spans.length} spans</span>
@@ -1134,7 +1167,7 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
               {/* Close Button */}
               <button
                 onClick={handleCloseTraces}
-                className="p-1.5 hover:bg-[#2A2C2C] rounded text-gray-400 hover:text-white transition-colors"
+                className="p-1.5 hover:bg-surface-overlay rounded text-ink-subtle hover:text-ink transition-colors"
                 aria-label="Close trace panel"
               >
                 <X className="w-4 h-4" />
@@ -1142,20 +1175,20 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
             </div>
           </div>
 
-          <div ref={traceScrollRef} className="flex-1 overflow-y-auto bg-[#191A1A]">
+          <div ref={traceScrollRef} className="flex-1 overflow-y-auto bg-surface">
             {/* Final outcome is shown for every mode, including Blackboard. */}
             {isComplete && reportId && (
-              <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
+              <section className="m-4 rounded-lg border border-primary-400/25/60 bg-canvas p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-cyan-300">Cited report</h3>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <h3 className="text-sm font-semibold text-primary-300">Cited report</h3>
+                    <p className="text-xs text-ink-subtle mt-1">
                       Structured findings with source citations, disagreements, and limitations.
                     </p>
                   </div>
                   <Link
                     to={`/reports/${reportId}`}
-                    className="flex items-center gap-2 px-3 py-2 text-sm bg-[#1FB8CD]/10 hover:bg-[#1FB8CD]/20 text-[#1FB8CD] border border-[#1FB8CD]/30 rounded-lg font-medium transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 text-sm bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 border border-primary-400/30 rounded-lg font-medium transition-colors"
                   >
                     <FileText className="w-4 h-4" />
                     View Report
@@ -1165,32 +1198,32 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
             )}
 
             {isComplete && errorMessage && (
-              <section className="m-4 rounded-lg border border-red-900/60 bg-red-950/20 p-4">
+              <section className="m-4 rounded-lg border border-danger-border/60 bg-red-950/20 p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <h3 className="text-sm font-semibold text-red-300">Run Error</h3>
+                  <h3 className="text-sm font-semibold text-danger">Run Error</h3>
                   {runStatus && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-300">
+                    <span className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-danger">
                       {runStatus}
                     </span>
                   )}
                 </div>
-                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-red-200">
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-danger">
                   {errorMessage}
                 </pre>
               </section>
             )}
 
             {isComplete && outcome.answer != null && (
-              <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
+              <section className="m-4 rounded-lg border border-primary-400/25/60 bg-canvas p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <h3 className="text-sm font-semibold text-cyan-300">Final Output</h3>
+                  <h3 className="text-sm font-semibold text-primary-300">Final Output</h3>
                   {runStatus && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300">
+                    <span className="text-xs px-2 py-0.5 rounded bg-primary-500/10 text-primary-300">
                       {runStatus}
                     </span>
                   )}
                 </div>
-                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-gray-200">
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-ink">
                   {formatFinalOutput(outcome.answer)}
                 </pre>
               </section>
@@ -1208,16 +1241,16 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
             ) : (
               <>
             {liveOutput && !isComplete && (
-              <section className="m-4 rounded-lg border border-cyan-900/60 bg-[#0D0E0E] p-4">
+              <section className="m-4 rounded-lg border border-primary-400/25/60 bg-canvas p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
-                  <h3 className="text-sm font-semibold text-cyan-300">
+                  <span className="w-2 h-2 bg-primary-400 rounded-full animate-pulse" />
+                  <h3 className="text-sm font-semibold text-primary-300">
                     Live output{liveAgent ? ` · ${liveAgent}` : ''}
                   </h3>
                 </div>
-                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-gray-200">
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm text-ink">
                   {liveOutput}
-                  <span className="inline-block w-2 h-4 bg-cyan-400 ml-0.5 animate-pulse align-middle" />
+                  <span className="inline-block w-2 h-4 bg-primary-400 ml-0.5 animate-pulse align-middle" />
                 </pre>
               </section>
             )}
@@ -1235,7 +1268,7 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                 ))}
               </div>
             ) : isComplete ? (
-              <div className="flex items-center justify-center h-full text-gray-500">
+              <div className="flex items-center justify-center h-full text-ink-faint">
                 <div className="text-center">
                   <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
                   <p className="text-sm">
@@ -1246,19 +1279,19 @@ Example: Research the top 5 programming languages in 2024 and write a comparison
                 </div>
               </div>
             ) : !isConnected ? (
-              <div className="flex items-center justify-center h-full text-gray-500">
+              <div className="flex items-center justify-center h-full text-ink-faint">
                 <div className="text-center">
                   <Activity className="w-12 h-12 mx-auto mb-3 opacity-50 animate-pulse" />
                   <p className="text-sm">Connecting to WebSocket...</p>
-                  {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+                  {error && <p className="text-xs text-danger mt-2">{error}</p>}
                 </div>
               </div>
             ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
+              <div className="flex items-center justify-center h-full text-ink-faint">
                 <div className="text-center">
                   <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
                   <p className="text-sm">Waiting for traces...</p>
-                  <p className="text-xs text-gray-600 mt-2">WebSocket connected, waiting for trace data...</p>
+                  <p className="text-xs text-ink-faint mt-2">WebSocket connected, waiting for trace data...</p>
                 </div>
               </div>
             )}
